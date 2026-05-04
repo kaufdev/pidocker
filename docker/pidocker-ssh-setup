@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SSH_DIR="${HOME}/.ssh"
+KEY_PATH="${SSH_DIR}/id_ed25519_pidocker"
+CONFIG_PATH="${SSH_DIR}/config"
+KEY_COMMENT="${PIDOCKER_SSH_KEY_COMMENT:-pidocker}"
+
+mkdir -p "${SSH_DIR}"
+chmod 700 "${SSH_DIR}"
+
+if [[ ! -f "${KEY_PATH}" ]]; then
+  ssh-keygen -t ed25519 -f "${KEY_PATH}" -C "${KEY_COMMENT}" -N ""
+  echo
+  echo "Created dedicated pidocker SSH key: ${KEY_PATH}"
+else
+  echo "Dedicated pidocker SSH key already exists: ${KEY_PATH}"
+fi
+
+chmod 600 "${KEY_PATH}"
+chmod 644 "${KEY_PATH}.pub"
+
+if [[ ! -f "${CONFIG_PATH}" ]]; then
+  cat > "${CONFIG_PATH}" <<EOF
+Host ssh.dev.azure.com
+  IdentityFile ${KEY_PATH}
+  IdentitiesOnly yes
+
+Host github.com
+  IdentityFile ${KEY_PATH}
+  IdentitiesOnly yes
+EOF
+  chmod 600 "${CONFIG_PATH}"
+  echo "Created SSH config: ${CONFIG_PATH}"
+else
+  echo "SSH config already exists, not overwriting: ${CONFIG_PATH}"
+fi
+
+echo
+echo "Public key to add in Azure DevOps / GitHub:"
+echo
+echo "$(cat "${KEY_PATH}.pub")"
+echo
+echo "After adding it, test with one of:"
+echo "  ssh -T git@ssh.dev.azure.com"
+echo "  ssh -T git@github.com"

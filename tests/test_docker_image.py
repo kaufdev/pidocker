@@ -330,6 +330,73 @@ def test_pi_resume_sessions_persist_in_home_volume_between_container_runs():
         remove_docker_volumes(home_volume, workspace_volume)
 
 
+def test_pidocker_ssh_setup_command_creates_dedicated_key_config_and_is_idempotent():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        first_result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "pidocker-ssh-setup",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert "Created dedicated pidocker SSH key" in first_result.stdout
+        assert "Public key to add in Azure DevOps / GitHub:" in first_result.stdout
+        assert "ssh-ed25519 " in first_result.stdout
+
+        second_result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "pidocker-ssh-setup && "
+                "test -f /home/pi/.ssh/id_ed25519_pidocker && "
+                "test -f /home/pi/.ssh/id_ed25519_pidocker.pub && "
+                "test -f /home/pi/.ssh/config && "
+                "grep -q 'Host ssh.dev.azure.com' /home/pi/.ssh/config && "
+                "grep -q 'Host github.com' /home/pi/.ssh/config && "
+                "test ! -e /Users/kaufdev/.ssh",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert "already exists" in second_result.stdout
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
 def test_dedicated_pidocker_ssh_key_can_be_generated_and_persists_in_home_volume():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
