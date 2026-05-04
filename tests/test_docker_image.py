@@ -1,7 +1,10 @@
 import json
+import os
 import subprocess
 import uuid
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -477,6 +480,7 @@ def test_pidocker_ssh_setup_command_creates_dedicated_key_config_and_is_idempote
                 "test -f /home/pi/.ssh/config && "
                 "grep -q 'Host ssh.dev.azure.com' /home/pi/.ssh/config && "
                 "grep -q 'Host github.com' /home/pi/.ssh/config && "
+                "grep -q 'StrictHostKeyChecking accept-new' /home/pi/.ssh/config && "
                 "test ! -e /Users/kaufdev/.ssh",
             ],
             cwd=REPO_ROOT,
@@ -542,6 +546,89 @@ def test_dedicated_pidocker_ssh_key_can_be_generated_and_persists_in_home_volume
         )
 
         assert result.stdout.startswith("ssh-ed25519 ")
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
+@pytest.mark.integration
+def test_azure_devops_clone_uses_dedicated_pidocker_ssh_key_and_workspace_repo_path():
+    azure_repo_url = os.environ.get("PIDOCKER_AZURE_DEVOPS_SSH_URL")
+    if not azure_repo_url:
+        pytest.skip("set PIDOCKER_AZURE_DEVOPS_SSH_URL=git@ssh.dev.azure.com:v3/org/project/repo")
+
+    repo_name = os.environ.get("PIDOCKER_AZURE_DEVOPS_REPO_NAME") or azure_repo_url.rstrip("/").split("/")[-1]
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+    clone_path = f"/workspace/repos/{repo_name}"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        setup_result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "pidocker-ssh-setup",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert "Public key to add in Azure DevOps / GitHub:" in setup_result.stdout
+
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "git",
+                "clone",
+                azure_repo_url,
+                clone_path,
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                f"test -d {clone_path}/.git && git -C {clone_path} remote get-url origin",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert result.stdout.strip() == azure_repo_url
     finally:
         remove_docker_volumes(home_volume, workspace_volume)
 

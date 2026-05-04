@@ -25,10 +25,12 @@ if [[ ! -f "${CONFIG_PATH}" ]]; then
 Host ssh.dev.azure.com
   IdentityFile ${KEY_PATH}
   IdentitiesOnly yes
+  StrictHostKeyChecking accept-new
 
 Host github.com
   IdentityFile ${KEY_PATH}
   IdentitiesOnly yes
+  StrictHostKeyChecking accept-new
 EOF
   chmod 600 "${CONFIG_PATH}"
   echo "Created SSH config: ${CONFIG_PATH}"
