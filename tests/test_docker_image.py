@@ -58,6 +58,32 @@ def test_docker_image_runs_as_pi_non_root_with_workspace_dirs():
     assert stdout_lines[1] == "pi"
 
 
+def test_docker_image_contains_pi_command():
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            TEST_IMAGE,
+            "bash",
+            "-lc",
+            "command -v pi && pi --version || true",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert result.stdout.splitlines()[0].endswith("/pi")
+
+
 def test_home_volume_persists_between_container_runs():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
