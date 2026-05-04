@@ -1,16 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PIDOCKER_IMAGE="${PIDOCKER_IMAGE:-pidocker:local}"
+PIDOCKER_DOCKER_CONTEXT="${PIDOCKER_DOCKER_CONTEXT:-${REPO_ROOT}/docker}"
+
 show_help() {
   cat <<'HELP'
 pidocker - run Pi inside a Docker container
 
 Usage:
   pidocker [--help]
+  pidocker
 
 Options:
   -h, --help    Show this help message and exit
 HELP
+}
+
+ensure_docker_available() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "pidocker: docker command not found" >&2
+    exit 127
+  fi
+}
+
+ensure_image_exists() {
+  if docker image inspect "${PIDOCKER_IMAGE}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  docker build -t "${PIDOCKER_IMAGE}" "${PIDOCKER_DOCKER_CONTEXT}"
+}
+
+run_container() {
+  ensure_docker_available
+  ensure_image_exists
+
+  exec docker run \
+    --rm \
+    -it \
+    --label app=pidocker \
+    "${PIDOCKER_IMAGE}"
 }
 
 case "${1:-}" in
@@ -19,8 +51,7 @@ case "${1:-}" in
     exit 0
     ;;
   "")
-    echo "pidocker runner is not implemented yet" >&2
-    exit 1
+    run_container
     ;;
   *)
     echo "Unknown option: $1" >&2
