@@ -225,6 +225,25 @@ def test_container_mounts_only_pidocker_volumes_and_cannot_see_private_host_path
             check=True,
         )
 
+        config_result = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                container_id,
+                "--format",
+                "{{json .HostConfig}}",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        host_config = json.loads(config_result.stdout)
+
+        assert host_config["Privileged"] is False
+        assert host_config["PidMode"] != "host"
+        assert host_config["NetworkMode"] != "host"
+
         inspect_result = subprocess.run(
             ["docker", "inspect", container_id, "--format", "{{json .Mounts}}"],
             cwd=REPO_ROOT,

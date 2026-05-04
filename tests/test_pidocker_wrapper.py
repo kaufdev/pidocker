@@ -16,6 +16,11 @@ FORBIDDEN_HOST_PATHS = [
     "/Users/kaufdev/.m2",
     "/var/run/docker.sock",
 ]
+FORBIDDEN_DOCKER_FLAGS = [
+    "--privileged",
+    "--pid=host",
+    "--network=host",
+]
 
 
 def test_pidocker_help_is_available_from_repo_script():
@@ -107,7 +112,16 @@ def test_pidocker_mounts_named_home_and_workspace_volumes(tmp_path):
     assert "type=volume,source=pidocker-test-workspace,target=/workspace" in docker_run_call
 
 
-def test_pidocker_does_not_mount_private_host_paths(tmp_path):
+def test_pidocker_script_does_not_contain_forbidden_docker_flags_or_mounts():
+    script = PIDOCKER.read_text()
+
+    for forbidden_flag in FORBIDDEN_DOCKER_FLAGS:
+        assert forbidden_flag not in script
+    for forbidden_path in ["/var/run/docker.sock", "/Users/kaufdev"]:
+        assert forbidden_path not in script
+
+
+def test_pidocker_does_not_use_forbidden_docker_flags_or_mount_private_host_paths(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -138,5 +152,7 @@ def test_pidocker_does_not_mount_private_host_paths(tmp_path):
 
     assert docker_run_calls, docker_calls
     docker_run_call = docker_run_calls[-1]
+    for forbidden_flag in FORBIDDEN_DOCKER_FLAGS:
+        assert forbidden_flag not in docker_run_call
     for forbidden_path in FORBIDDEN_HOST_PATHS:
         assert forbidden_path not in docker_run_call
