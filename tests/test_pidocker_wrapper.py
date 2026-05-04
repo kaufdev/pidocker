@@ -7,6 +7,23 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PIDOCKER = REPO_ROOT / "bin" / "pidocker"
 
 
+def test_pidocker_help_is_available_from_repo_script():
+    assert PIDOCKER.exists()
+    assert os.access(PIDOCKER, os.X_OK)
+
+    result = subprocess.run(
+        [str(PIDOCKER), "--help"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "pidocker - run Pi inside a Docker container" in result.stdout
+    assert "Usage:" in result.stdout
+
+
 def test_pidocker_adds_app_label_to_docker_run(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"
