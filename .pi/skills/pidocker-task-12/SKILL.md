@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 12. Dedykowany SSH key dla pidocker
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
