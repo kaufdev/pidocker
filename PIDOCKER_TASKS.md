@@ -326,7 +326,7 @@ Oczekiwane: da się wejść do kontenera, a `whoami` zwraca użytkownika kontene
 
 ## 3. Dockerfile tworzy usera non-root
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
