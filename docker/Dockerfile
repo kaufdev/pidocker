@@ -14,4 +14,4 @@ RUN apt-get update \
 USER pi
 WORKDIR /workspace
 
-CMD ["bash"]
+CMD ["pi"]

@@ -47,7 +47,8 @@ run_container() {
     --label app=pidocker \
     --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
     --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
-    "${PIDOCKER_IMAGE}"
+    "${PIDOCKER_IMAGE}" \
+    pi
 }
 
 case "${1:-}" in

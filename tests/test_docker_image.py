@@ -58,6 +58,31 @@ def test_docker_image_runs_as_pi_non_root_with_workspace_dirs():
     assert stdout_lines[1] == "pi"
 
 
+def test_docker_image_uses_pi_as_default_command():
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    result = subprocess.run(
+        [
+            "docker",
+            "image",
+            "inspect",
+            TEST_IMAGE,
+            "--format",
+            "{{json .Config.Cmd}}",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert json.loads(result.stdout) == ["pi"]
+
+
 def test_docker_image_contains_pi_command():
     subprocess.run(
         ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
