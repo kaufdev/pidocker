@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+show_help() {
+  cat <<'HELP'
+pidocker - run Pi inside a Docker container
+
+Usage:
+  pidocker [--help]
+
+Options:
+  -h, --help    Show this help message and exit
+HELP
+}
+
+case "${1:-}" in
+  -h|--help)
+    show_help
+    exit 0
+    ;;
+  "")
+    echo "pidocker runner is not implemented yet" >&2
+    exit 1
+    ;;
+  *)
+    echo "Unknown option: $1" >&2
+    show_help >&2
+    exit 2
+    ;;
+esac
