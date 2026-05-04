@@ -180,7 +180,7 @@ Dopiero po ręcznym teście zaznaczamy checkbox:
 
 ## 0. Setup projektu i test harness
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
