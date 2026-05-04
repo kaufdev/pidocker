@@ -99,3 +99,58 @@ def test_home_volume_persists_between_container_runs():
         assert result.stdout.strip() == "ok"
     finally:
         remove_docker_volumes(home_volume, workspace_volume)
+
+
+def test_workspace_volume_persists_repos_between_container_runs():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "mkdir -p /workspace/repos/test-repo && echo ok > /workspace/repos/test-repo/workspace-persistence-test.txt",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "cat /workspace/repos/test-repo/workspace-persistence-test.txt",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert result.stdout.strip() == "ok"
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
