@@ -458,8 +458,11 @@ def test_pidocker_ssh_setup_command_creates_dedicated_key_config_and_is_idempote
             check=True,
         )
 
-        assert "Created dedicated pidocker SSH key" in first_result.stdout
-        assert "Public key to add in Azure DevOps / GitHub:" in first_result.stdout
+        assert "Created dedicated pidocker GitHub SSH key" in first_result.stdout
+        assert "Created dedicated pidocker Azure DevOps SSH key" in first_result.stdout
+        assert "Public key to add in Azure DevOps:" in first_result.stdout
+        assert "Public key to add in GitHub:" in first_result.stdout
+        assert "ssh-rsa " in first_result.stdout
         assert "ssh-ed25519 " in first_result.stdout
 
         second_result = subprocess.run(
@@ -475,11 +478,15 @@ def test_pidocker_ssh_setup_command_creates_dedicated_key_config_and_is_idempote
                 "bash",
                 "-lc",
                 "pidocker-ssh-setup && "
-                "test -f /home/pi/.ssh/id_ed25519_pidocker && "
-                "test -f /home/pi/.ssh/id_ed25519_pidocker.pub && "
+                "test -f /home/pi/.ssh/id_ed25519_pidocker_github && "
+                "test -f /home/pi/.ssh/id_ed25519_pidocker_github.pub && "
+                "test -f /home/pi/.ssh/id_rsa_pidocker_azure && "
+                "test -f /home/pi/.ssh/id_rsa_pidocker_azure.pub && "
                 "test -f /home/pi/.ssh/config && "
                 "grep -q 'Host ssh.dev.azure.com' /home/pi/.ssh/config && "
+                "grep -q 'IdentityFile /home/pi/.ssh/id_rsa_pidocker_azure' /home/pi/.ssh/config && "
                 "grep -q 'Host github.com' /home/pi/.ssh/config && "
+                "grep -q 'IdentityFile /home/pi/.ssh/id_ed25519_pidocker_github' /home/pi/.ssh/config && "
                 "grep -q 'StrictHostKeyChecking accept-new' /home/pi/.ssh/config && "
                 "test ! -e /Users/kaufdev/.ssh",
             ],
@@ -587,7 +594,8 @@ def test_azure_devops_clone_uses_dedicated_pidocker_ssh_key_and_workspace_repo_p
             check=True,
         )
 
-        assert "Public key to add in Azure DevOps / GitHub:" in setup_result.stdout
+        assert "Public key to add in Azure DevOps:" in setup_result.stdout
+        assert "ssh-rsa " in setup_result.stdout
 
         subprocess.run(
             [

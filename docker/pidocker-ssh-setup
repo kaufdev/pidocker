@@ -2,33 +2,47 @@
 set -euo pipefail
 
 SSH_DIR="${HOME}/.ssh"
-KEY_PATH="${SSH_DIR}/id_ed25519_pidocker"
+GITHUB_KEY_PATH="${SSH_DIR}/id_ed25519_pidocker_github"
+AZURE_KEY_PATH="${SSH_DIR}/id_rsa_pidocker_azure"
+LEGACY_KEY_PATH="${SSH_DIR}/id_ed25519_pidocker"
 CONFIG_PATH="${SSH_DIR}/config"
 KEY_COMMENT="${PIDOCKER_SSH_KEY_COMMENT:-pidocker}"
 
 mkdir -p "${SSH_DIR}"
 chmod 700 "${SSH_DIR}"
 
-if [[ ! -f "${KEY_PATH}" ]]; then
-  ssh-keygen -t ed25519 -f "${KEY_PATH}" -C "${KEY_COMMENT}" -N ""
+if [[ -f "${LEGACY_KEY_PATH}" && ! -f "${GITHUB_KEY_PATH}" ]]; then
+  cp "${LEGACY_KEY_PATH}" "${GITHUB_KEY_PATH}"
+  cp "${LEGACY_KEY_PATH}.pub" "${GITHUB_KEY_PATH}.pub"
+  echo "Migrated legacy GitHub SSH key to: ${GITHUB_KEY_PATH}"
+elif [[ ! -f "${GITHUB_KEY_PATH}" ]]; then
+  ssh-keygen -t ed25519 -f "${GITHUB_KEY_PATH}" -C "${KEY_COMMENT}-github" -N ""
   echo
-  echo "Created dedicated pidocker SSH key: ${KEY_PATH}"
+  echo "Created dedicated pidocker GitHub SSH key: ${GITHUB_KEY_PATH}"
 else
-  echo "Dedicated pidocker SSH key already exists: ${KEY_PATH}"
+  echo "Dedicated pidocker GitHub SSH key already exists: ${GITHUB_KEY_PATH}"
 fi
 
-chmod 600 "${KEY_PATH}"
-chmod 644 "${KEY_PATH}.pub"
+if [[ ! -f "${AZURE_KEY_PATH}" ]]; then
+  ssh-keygen -t rsa -b 4096 -f "${AZURE_KEY_PATH}" -C "${KEY_COMMENT}-azure" -N ""
+  echo
+  echo "Created dedicated pidocker Azure DevOps SSH key: ${AZURE_KEY_PATH}"
+else
+  echo "Dedicated pidocker Azure DevOps SSH key already exists: ${AZURE_KEY_PATH}"
+fi
+
+chmod 600 "${GITHUB_KEY_PATH}" "${AZURE_KEY_PATH}"
+chmod 644 "${GITHUB_KEY_PATH}.pub" "${AZURE_KEY_PATH}.pub"
 
 if [[ ! -f "${CONFIG_PATH}" ]]; then
   cat > "${CONFIG_PATH}" <<EOF
 Host ssh.dev.azure.com
-  IdentityFile ${KEY_PATH}
+  IdentityFile ${AZURE_KEY_PATH}
   IdentitiesOnly yes
   StrictHostKeyChecking accept-new
 
 Host github.com
-  IdentityFile ${KEY_PATH}
+  IdentityFile ${GITHUB_KEY_PATH}
   IdentitiesOnly yes
   StrictHostKeyChecking accept-new
 EOF
@@ -39,9 +53,13 @@ else
 fi
 
 echo
-echo "Public key to add in Azure DevOps / GitHub:"
+echo "Public key to add in Azure DevOps:"
 echo
-echo "$(cat "${KEY_PATH}.pub")"
+echo "$(cat "${AZURE_KEY_PATH}.pub")"
+echo
+echo "Public key to add in GitHub:"
+echo
+echo "$(cat "${GITHUB_KEY_PATH}.pub")"
 echo
 echo "After adding it, test with one of:"
 echo "  ssh -T git@ssh.dev.azure.com"
