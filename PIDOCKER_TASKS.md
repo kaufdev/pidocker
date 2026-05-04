@@ -267,7 +267,7 @@ pidocker --help
 
 ## 2. Kontener pidocker da się znaleźć i wejść do niego ręcznie
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
