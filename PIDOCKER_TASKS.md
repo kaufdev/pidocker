@@ -440,7 +440,7 @@ Oczekiwane: plik istnieje i ma poprzednią zawartość.
 
 ## 5. Volume `pidocker-workspace` persystuje `/workspace`
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
