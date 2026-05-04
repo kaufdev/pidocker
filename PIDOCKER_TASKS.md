@@ -220,7 +220,7 @@ pidocker --help
 
 ## 1. Komenda `pidocker` jest dostępna z hosta
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
