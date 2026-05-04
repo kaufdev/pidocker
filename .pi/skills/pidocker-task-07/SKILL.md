@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 7. `pidocker` nie używa niebezpiecznych flag Dockera
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 

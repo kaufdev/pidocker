@@ -19,7 +19,7 @@ Szczegóły konkretnego zadania są w odpowiadającym mu skillu. Ładuj tylko sk
 - [x] **4. Volume `pidocker-home` persystuje `/home/pi`** — `/skill:pidocker-task-04`
 - [x] **5. Volume `pidocker-workspace` persystuje `/workspace`** — `/skill:pidocker-task-05`
 - [x] **6. Kontener nie widzi prywatnych plików hosta** — `/skill:pidocker-task-06`
-- [ ] **7. `pidocker` nie używa niebezpiecznych flag Dockera** — `/skill:pidocker-task-07`
+- [x] **7. `pidocker` nie używa niebezpiecznych flag Dockera** — `/skill:pidocker-task-07`
 - [ ] **8. Obraz zawiera komendę `pi`** — `/skill:pidocker-task-08`
 - [ ] **9. Zwykłe `pidocker` odpala interaktywne Pi** — `/skill:pidocker-task-09`
 - [ ] **10. `/login` zapisuje auth w `pidocker-home`** — `/skill:pidocker-task-10`
