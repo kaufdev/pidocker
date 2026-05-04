@@ -15,6 +15,6 @@ RUN apt-get update \
     && chown -R pi:pi /home/pi /workspace
 
 USER pi
-WORKDIR /workspace
+WORKDIR /workspace/repos
 
 CMD ["pi"]
