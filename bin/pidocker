@@ -16,6 +16,10 @@ pidocker - run Pi inside a Docker container
 Usage:
   pidocker [--help]
   pidocker
+  pidocker setupssh
+
+Commands:
+  setupssh      Create/show the dedicated pidocker SSH public key
 
 Options:
   -h, --help    Show this help message and exit
@@ -51,6 +55,19 @@ run_container() {
     pi
 }
 
+setup_ssh() {
+  ensure_docker_available
+  ensure_image_exists
+
+  exec docker run \
+    --rm \
+    --label app=pidocker \
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+    --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
+    "${PIDOCKER_IMAGE}" \
+    pidocker-ssh-setup
+}
+
 case "${1:-}" in
   -h|--help)
     show_help
@@ -58,6 +75,9 @@ case "${1:-}" in
     ;;
   "")
     run_container
+    ;;
+  setupssh)
+    setup_ssh
     ;;
   *)
     echo "Unknown option: $1" >&2

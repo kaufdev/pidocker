@@ -75,6 +75,44 @@ def test_pidocker_adds_app_label_to_docker_run(tmp_path):
     assert "app=pidocker" in docker_run_call
 
 
+def test_pidocker_setupssh_runs_ssh_setup_command_in_container(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_VOLUME_PREFIX"] = "pidocker-test"
+
+    result = subprocess.run(
+        [str(PIDOCKER), "setupssh"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    docker_calls = docker_log.read_text().splitlines()
+    docker_run_calls = [call.split() for call in docker_calls if call.startswith("run ")]
+
+    assert docker_run_calls, docker_calls
+    docker_run_call = docker_run_calls[-1]
+    assert "-it" not in docker_run_call
+    assert "type=volume,source=pidocker-test-home,target=/home/pi" in docker_run_call
+    assert "type=volume,source=pidocker-test-workspace,target=/workspace" in docker_run_call
+    assert docker_run_call[-1] == "pidocker-ssh-setup"
+
+
 def test_pidocker_runs_pi_by_default(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"
