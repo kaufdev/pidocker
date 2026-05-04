@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PIDOCKER_IMAGE="${PIDOCKER_IMAGE:-pidocker:local}"
 PIDOCKER_DOCKER_CONTEXT="${PIDOCKER_DOCKER_CONTEXT:-${REPO_ROOT}/docker}"
+PIDOCKER_VOLUME_PREFIX="${PIDOCKER_VOLUME_PREFIX:-pidocker}"
+PIDOCKER_HOME_VOLUME="${PIDOCKER_VOLUME_PREFIX}-home"
+PIDOCKER_WORKSPACE_VOLUME="${PIDOCKER_VOLUME_PREFIX}-workspace"
 
 show_help() {
   cat <<'HELP'
@@ -42,6 +45,8 @@ run_container() {
     --rm \
     -it \
     --label app=pidocker \
+    --volume "${PIDOCKER_HOME_VOLUME}:/home/pi" \
+    --volume "${PIDOCKER_WORKSPACE_VOLUME}:/workspace" \
     "${PIDOCKER_IMAGE}"
 }
 
