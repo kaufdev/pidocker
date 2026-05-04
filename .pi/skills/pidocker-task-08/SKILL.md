@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 8. Obraz zawiera komendę `pi`
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
