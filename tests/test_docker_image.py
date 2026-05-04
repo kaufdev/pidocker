@@ -330,6 +330,62 @@ def test_pi_resume_sessions_persist_in_home_volume_between_container_runs():
         remove_docker_volumes(home_volume, workspace_volume)
 
 
+def test_dedicated_pidocker_ssh_key_can_be_generated_and_persists_in_home_volume():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+    key_path = "/home/pi/.ssh/id_ed25519_pidocker"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                f"mkdir -p /home/pi/.ssh && ssh-keygen -t ed25519 -f {key_path} -N ''",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                f"test -f {key_path} && test -f {key_path}.pub && test ! -e /Users/kaufdev/.ssh && cat {key_path}.pub",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert result.stdout.startswith("ssh-ed25519 ")
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
 def test_container_mounts_only_pidocker_volumes_and_cannot_see_private_host_paths():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"

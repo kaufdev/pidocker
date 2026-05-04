@@ -1,7 +1,7 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm \
+    && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm openssh-client \
     && npm install -g n \
     && n lts \
     && npm install -g @mariozechner/pi-coding-agent \
