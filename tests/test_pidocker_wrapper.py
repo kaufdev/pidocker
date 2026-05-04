@@ -5,6 +5,17 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIDOCKER = REPO_ROOT / "bin" / "pidocker"
+FORBIDDEN_HOST_PATHS = [
+    "/Users/kaufdev",
+    "/Users/kaufdev/projects",
+    "/Users/kaufdev/.ssh",
+    "/Users/kaufdev/.aws",
+    "/Users/kaufdev/.kube",
+    "/Users/kaufdev/.config",
+    "/Users/kaufdev/.npmrc",
+    "/Users/kaufdev/.m2",
+    "/var/run/docker.sock",
+]
 
 
 def test_pidocker_help_is_available_from_repo_script():
@@ -91,6 +102,41 @@ def test_pidocker_mounts_named_home_and_workspace_volumes(tmp_path):
 
     assert docker_run_calls, docker_calls
     docker_run_call = docker_run_calls[-1]
-    assert "--volume" in docker_run_call
-    assert "pidocker-test-home:/home/pi" in docker_run_call
-    assert "pidocker-test-workspace:/workspace" in docker_run_call
+    assert "--mount" in docker_run_call
+    assert "type=volume,source=pidocker-test-home,target=/home/pi" in docker_run_call
+    assert "type=volume,source=pidocker-test-workspace,target=/workspace" in docker_run_call
+
+
+def test_pidocker_does_not_mount_private_host_paths(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+
+    result = subprocess.run(
+        [str(PIDOCKER)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    docker_calls = docker_log.read_text().splitlines()
+    docker_run_calls = [call for call in docker_calls if call.startswith("run ")]
+
+    assert docker_run_calls, docker_calls
+    docker_run_call = docker_run_calls[-1]
+    for forbidden_path in FORBIDDEN_HOST_PATHS:
+        assert forbidden_path not in docker_run_call

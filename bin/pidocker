@@ -45,8 +45,8 @@ run_container() {
     --rm \
     -it \
     --label app=pidocker \
-    --volume "${PIDOCKER_HOME_VOLUME}:/home/pi" \
-    --volume "${PIDOCKER_WORKSPACE_VOLUME}:/workspace" \
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+    --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
     "${PIDOCKER_IMAGE}"
 }
 
