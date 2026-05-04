@@ -274,6 +274,62 @@ def test_pi_auth_file_persists_in_home_volume_between_container_runs():
         remove_docker_volumes(home_volume, workspace_volume)
 
 
+def test_pi_resume_sessions_persist_in_home_volume_between_container_runs():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+    session_file = "/home/pi/.pi/agent/sessions/session-persistence-test.jsonl"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                f"mkdir -p /home/pi/.pi/agent/sessions && echo session-ok > {session_file}",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                f"test -f {session_file} && cat {session_file}",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert result.stdout.strip() == "session-ok"
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
 def test_container_mounts_only_pidocker_volumes_and_cannot_see_private_host_paths():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"

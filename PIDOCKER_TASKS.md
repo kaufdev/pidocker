@@ -22,8 +22,8 @@ Szczegóły konkretnego zadania są w odpowiadającym mu skillu. Ładuj tylko sk
 - [x] **7. `pidocker` nie używa niebezpiecznych flag Dockera** — `/skill:pidocker-task-07`
 - [x] **8. Obraz zawiera komendę `pi`** — `/skill:pidocker-task-08`
 - [x] **9. Zwykłe `pidocker` odpala interaktywne Pi** — `/skill:pidocker-task-09`
-- [ ] **10. `/login` zapisuje auth w `pidocker-home`** — `/skill:pidocker-task-10`
-- [ ] **11. Sesje Pi `/resume` są persystentne** — `/skill:pidocker-task-11`
+- [x] **10. `/login` zapisuje auth w `pidocker-home`** — `/skill:pidocker-task-10`
+- [x] **11. Sesje Pi `/resume` są persystentne** — `/skill:pidocker-task-11`
 - [ ] **12. Dedykowany SSH key dla pidocker** — `/skill:pidocker-task-12`
 - [ ] **13. Git clone do `/workspace/repos`** — `/skill:pidocker-task-13`
 - [ ] **14. Git clone z Azure DevOps przez dedykowany SSH key** — `/skill:pidocker-task-14`

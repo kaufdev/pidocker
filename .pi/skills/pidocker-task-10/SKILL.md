@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 10. `/login` zapisuje auth w `pidocker-home`
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 

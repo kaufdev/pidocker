@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 11. Sesje Pi `/resume` są persystentne
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
