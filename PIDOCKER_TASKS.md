@@ -497,7 +497,7 @@ Oczekiwane: zwraca `ok`.
 
 ## 6. Kontener nie widzi prywatnych plików hosta
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
