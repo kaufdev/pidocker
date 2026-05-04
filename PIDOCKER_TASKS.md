@@ -384,7 +384,7 @@ ls -ld /home/pi /workspace /workspace/repos
 
 ## 4. Volume `pidocker-home` persystuje `/home/pi`
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
