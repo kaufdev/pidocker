@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 9. Zwykłe `pidocker` odpala interaktywne Pi
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
