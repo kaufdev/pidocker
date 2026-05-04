@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 13. Git clone do `/workspace/repos`
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
