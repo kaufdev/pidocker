@@ -219,6 +219,61 @@ def test_workspace_volume_persists_repos_between_container_runs():
         remove_docker_volumes(home_volume, workspace_volume)
 
 
+def test_pi_auth_file_persists_in_home_volume_between_container_runs():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "mkdir -p /home/pi/.pi/agent && echo '{\"loggedIn\":true}' > /home/pi/.pi/agent/auth.json",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "test -f /home/pi/.pi/agent/auth.json && cat /home/pi/.pi/agent/auth.json",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert json.loads(result.stdout) == {"loggedIn": True}
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
 def test_container_mounts_only_pidocker_volumes_and_cannot_see_private_host_paths():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
