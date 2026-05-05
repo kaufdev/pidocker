@@ -17,9 +17,11 @@ Usage:
   pidocker [--help]
   pidocker
   pidocker setupssh
+  pidocker secrets set KEY
 
 Commands:
-  setupssh      Create/show the dedicated pidocker SSH public key
+  setupssh          Create/show the dedicated pidocker SSH public key
+  secrets set KEY   Read a secret value securely and store it in pidocker-home
 
 Options:
   -h, --help    Show this help message and exit
@@ -68,6 +70,59 @@ setup_ssh() {
     pidocker-ssh-setup
 }
 
+set_secret() {
+  local key="${1:-}"
+  if [[ -z "${key}" || $# -ne 1 ]]; then
+    echo "Usage: pidocker secrets set KEY" >&2
+    exit 2
+  fi
+  if [[ ! "${key}" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+    echo "pidocker: secret key must match [A-Z_][A-Z0-9_]*" >&2
+    exit 2
+  fi
+
+  ensure_docker_available
+  ensure_image_exists
+
+  local value
+  if [[ -t 0 ]]; then
+    printf "Value for %s: " "${key}" >&2
+    IFS= read -r -s value
+    printf "\n" >&2
+  else
+    IFS= read -r value
+  fi
+
+  printf '%s' "${value}" | docker run \
+    --rm \
+    -i \
+    --label app=pidocker \
+    --env "PIDOCKER_SECRET_KEY=${key}" \
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+    --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
+    "${PIDOCKER_IMAGE}" \
+    bash -lc '
+      set -euo pipefail
+      key="${PIDOCKER_SECRET_KEY}"
+      value="$(cat)"
+      umask 077
+      mkdir -p /home/pi/.pidocker/secrets
+      secrets_file=/home/pi/.pidocker/secrets/env
+      tmp_file="$(mktemp)"
+      if [ -f "${secrets_file}" ]; then
+        grep -v -E "^${key}=" "${secrets_file}" > "${tmp_file}" || true
+      fi
+      printf "%s=%s\n" "${key}" "${value}" >> "${tmp_file}"
+      mv "${tmp_file}" "${secrets_file}"
+      chmod 600 "${secrets_file}"
+      if [ "${key}" = "NOTION_API_KEY" ]; then
+        printf "%s=%s\n" "${key}" "${value}" > /home/pi/.pidocker/secrets/notion.env
+        chmod 600 /home/pi/.pidocker/secrets/notion.env
+      fi
+    '
+  echo "Stored secret ${key} in pidocker-home."
+}
+
 case "${1:-}" in
   -h|--help)
     show_help
@@ -78,6 +133,13 @@ case "${1:-}" in
     ;;
   setupssh)
     setup_ssh
+    ;;
+  secrets)
+    if [[ "${2:-}" != "set" || -z "${3:-}" || -n "${4:-}" ]]; then
+      echo "Usage: pidocker secrets set KEY" >&2
+      exit 2
+    fi
+    set_secret "${3}"
     ;;
   *)
     echo "Unknown option: $1" >&2

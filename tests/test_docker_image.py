@@ -430,6 +430,73 @@ def test_notion_secret_path_is_sandboxed_and_persists_in_home_volume_between_con
         remove_docker_volumes(home_volume, workspace_volume)
 
 
+def test_pidocker_secrets_set_stores_notion_secret_in_home_volume():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-i",
+                "--env",
+                "PIDOCKER_SECRET_KEY=NOTION_API_KEY",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "key=\"${PIDOCKER_SECRET_KEY}\" && value=\"$(cat)\" && "
+                "umask 077 && mkdir -p /home/pi/.pidocker/secrets && "
+                "printf \"%s=%s\\n\" \"$key\" \"$value\" > /home/pi/.pidocker/secrets/env && "
+                "printf \"%s=%s\\n\" \"$key\" \"$value\" > /home/pi/.pidocker/secrets/notion.env && "
+                "chmod 600 /home/pi/.pidocker/secrets/env /home/pi/.pidocker/secrets/notion.env",
+            ],
+            cwd=REPO_ROOT,
+            input="secret-from-stdin",
+            text=True,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "cat /home/pi/.pidocker/secrets/env && cat /home/pi/.pidocker/secrets/notion.env",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert result.stdout.splitlines() == [
+            "NOTION_API_KEY=secret-from-stdin",
+            "NOTION_API_KEY=secret-from-stdin",
+        ]
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
 def test_pi_resume_sessions_persist_in_home_volume_between_container_runs():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
