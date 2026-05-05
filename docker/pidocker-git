@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_GIT="/usr/bin/git"
+
+is_forbidden_push_arg() {
+  case "$1" in
+    --force|--force=*|-f|--force-with-lease|--force-with-lease=*|--mirror)
+      return 0
+      ;;
+    :*)
+      return 0
+      ;;
+    *:*)
+      # Deleting a remote ref can be expressed as an empty source ref, e.g. origin :branch.
+      if [[ "$1" == :* ]]; then
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+if [[ "${1:-}" == "push" ]]; then
+  shift
+  for arg in "$@"; do
+    if is_forbidden_push_arg "$arg"; then
+      echo "pidocker: force push is disabled" >&2
+      exit 1
+    fi
+  done
+  exec "$REAL_GIT" push "$@"
+fi
+
+exec "$REAL_GIT" "$@"

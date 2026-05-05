@@ -698,6 +698,103 @@ def test_azure_devops_clone_uses_dedicated_pidocker_ssh_key_and_workspace_repo_p
         remove_docker_volumes(home_volume, workspace_volume)
 
 
+def test_git_push_wrapper_blocks_destructive_pushes_but_allows_normal_push():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        setup_script = (
+            "set -euo pipefail && "
+            "git init --bare /workspace/origin.git && "
+            "git clone /workspace/origin.git /workspace/repos/push-test && "
+            "cd /workspace/repos/push-test && "
+            "git config user.email pi@example.invalid && "
+            "git config user.name pidocker && "
+            "echo ok > README.md && "
+            "git add README.md && "
+            "git commit -m initial"
+        )
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                setup_script,
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        forbidden_pushes = [
+            "git push --force origin HEAD:test-force",
+            "git push --force-with-lease origin HEAD:test-force-with-lease",
+            "git push --mirror origin",
+            "git push origin :some-branch",
+        ]
+        for command in forbidden_pushes:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--volume",
+                    f"{home_volume}:/home/pi",
+                    "--volume",
+                    f"{workspace_volume}:/workspace",
+                    TEST_IMAGE,
+                    "bash",
+                    "-lc",
+                    f"cd /workspace/repos/push-test && {command}",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            assert result.returncode != 0, command
+            assert "pidocker: force push is disabled" in result.stderr
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "cd /workspace/repos/push-test && git push origin HEAD:test-branch",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert "test-branch" in result.stderr
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
+
 def test_container_mounts_only_pidocker_volumes_and_cannot_see_private_host_paths():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
