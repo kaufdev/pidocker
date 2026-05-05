@@ -112,6 +112,110 @@ def test_docker_image_contains_pi_command():
     assert result.stdout.splitlines()[0].endswith("/pi")
 
 
+def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            TEST_IMAGE,
+            "bash",
+            "-lc",
+            "set -euo pipefail && "
+            "npm list -g --depth=0 pi-web-access >/dev/null && "
+            "node -e 'const pkg=require(\"/usr/local/lib/node_modules/pi-web-access/package.json\"); "
+            "if (!pkg.pi || !pkg.pi.extensions || !pkg.pi.extensions.includes(\"./index.ts\")) process.exit(1)' && "
+            "grep -q 'npm:pi-web-access' /home/pi/.pi/agent/settings.json && "
+            "test -f /usr/local/lib/node_modules/pi-web-access/skills/librarian/SKILL.md && "
+            "grep -q 'web_search' /usr/local/lib/node_modules/pi-web-access/index.ts && "
+            "grep -q 'code_search' /usr/local/lib/node_modules/pi-web-access/index.ts && "
+            "grep -q 'fetch_content' /usr/local/lib/node_modules/pi-web-access/index.ts && "
+            "grep -q 'get_search_content' /usr/local/lib/node_modules/pi-web-access/index.ts",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert result.returncode == 0
+
+
+def test_pi_web_access_package_setting_persists_in_home_volume():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    seed_settings = (
+        "settings_file=/home/pi/.pi/agent/settings.json && "
+        "mkdir -p /home/pi/.pi/agent && "
+        "PI_SETTINGS_FILE=\"${settings_file}\" node <<'NODE'\n"
+        "const fs = require(\"fs\");\n"
+        "const settingsFile = process.env.PI_SETTINGS_FILE;\n"
+        "let settings = {};\n"
+        "try { settings = JSON.parse(fs.readFileSync(settingsFile, \"utf8\")); } catch (_) {}\n"
+        "if (!Array.isArray(settings.packages)) settings.packages = [];\n"
+        "if (!settings.packages.includes(\"npm:pi-web-access\")) settings.packages.push(\"npm:pi-web-access\");\n"
+        "fs.writeFileSync(settingsFile, `${JSON.stringify(settings, null, 2)}\\n`);\n"
+        "NODE"
+    )
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                seed_settings,
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "grep -q 'npm:pi-web-access' /home/pi/.pi/agent/settings.json && cat /home/pi/.pi/agent/settings.json",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert "npm:pi-web-access" in result.stdout
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
 def test_home_volume_persists_between_container_runs():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"

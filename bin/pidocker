@@ -56,6 +56,22 @@ run_container() {
     "${PIDOCKER_IMAGE}" \
     bash -lc '
       set -euo pipefail
+      settings_file=/home/pi/.pi/agent/settings.json
+      mkdir -p /home/pi/.pi/agent
+      PI_SETTINGS_FILE="${settings_file}" node <<"NODE"
+const fs = require("fs");
+const settingsFile = process.env.PI_SETTINGS_FILE;
+let settings = {};
+try {
+  settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+} catch (_) {}
+if (!Array.isArray(settings.packages)) settings.packages = [];
+if (!settings.packages.includes("npm:pi-web-access")) {
+  settings.packages.push("npm:pi-web-access");
+}
+fs.writeFileSync(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+NODE
+
       secrets_file=/home/pi/.pidocker/secrets/env
       if [ -f "${secrets_file}" ]; then
         while IFS="=" read -r key value; do

@@ -230,6 +230,15 @@ def test_pidocker_loads_pidocker_secrets_before_running_pi():
     assert "exec pi" in script
 
 
+def test_pidocker_persists_pi_web_access_package_in_home_volume_before_running_pi():
+    script = PIDOCKER.read_text()
+
+    assert "/home/pi/.pi/agent/settings.json" in script
+    assert "npm:pi-web-access" in script
+    assert "settings.packages.push" in script
+    assert script.index("npm:pi-web-access") < script.index("exec pi")
+
+
 def test_pidocker_mounts_named_home_and_workspace_volumes(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"
