@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 17. Web/search tooling dostępne w kontenerze
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
