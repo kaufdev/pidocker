@@ -497,6 +497,63 @@ def test_pidocker_ssh_setup_command_creates_dedicated_key_config_and_is_idempote
         )
 
         assert "already exists" in second_result.stdout
+        assert "Updated SSH config" in second_result.stdout
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
+def test_pidocker_ssh_setup_updates_legacy_managed_config_without_removing_custom_hosts():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "mkdir -p /home/pi/.ssh && "
+                "ssh-keygen -t ed25519 -f /home/pi/.ssh/id_ed25519_pidocker -N '' >/dev/null && "
+                "cat > /home/pi/.ssh/config <<'EOF'\n"
+                "Host ssh.dev.azure.com\n"
+                "  IdentityFile /home/pi/.ssh/id_ed25519_pidocker\n"
+                "  IdentitiesOnly yes\n"
+                "\n"
+                "Host internal.example.com\n"
+                "  User custom\n"
+                "\n"
+                "Host github.com\n"
+                "  IdentityFile /home/pi/.ssh/id_ed25519_pidocker\n"
+                "  IdentitiesOnly yes\n"
+                "EOF\n"
+                "pidocker-ssh-setup >/dev/null && cat /home/pi/.ssh/config",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        config = result.stdout
+        assert "Host internal.example.com" in config
+        assert "User custom" in config
+        assert "IdentityFile /home/pi/.ssh/id_rsa_pidocker_azure" in config
+        assert "IdentityFile /home/pi/.ssh/id_ed25519_pidocker_github" in config
+        assert "  IdentityFile /home/pi/.ssh/id_ed25519_pidocker\n" not in config
     finally:
         remove_docker_volumes(home_volume, workspace_volume)
 
