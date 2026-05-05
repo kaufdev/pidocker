@@ -54,7 +54,18 @@ run_container() {
     --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
     --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
     "${PIDOCKER_IMAGE}" \
-    pi
+    bash -lc '
+      set -euo pipefail
+      secrets_file=/home/pi/.pidocker/secrets/env
+      if [ -f "${secrets_file}" ]; then
+        while IFS="=" read -r key value; do
+          if [ -n "${key}" ] && [[ "${key}" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+            export "${key}=${value}"
+          fi
+        done < "${secrets_file}"
+      fi
+      exec pi
+    '
 }
 
 setup_ssh() {

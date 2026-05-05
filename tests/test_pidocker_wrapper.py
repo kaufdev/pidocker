@@ -218,7 +218,16 @@ def test_pidocker_runs_pi_by_default(tmp_path):
     docker_run_calls = [call.split() for call in docker_calls if call.startswith("run ")]
 
     assert docker_run_calls, docker_calls
-    assert docker_run_calls[-1][-1] == "pi"
+    docker_run_call = docker_run_calls[-1]
+    assert docker_run_call[-2:] == ["bash", "-lc"]
+
+
+def test_pidocker_loads_pidocker_secrets_before_running_pi():
+    script = PIDOCKER.read_text()
+
+    assert "/home/pi/.pidocker/secrets/env" in script
+    assert "export \"${key}=${value}\"" in script
+    assert "exec pi" in script
 
 
 def test_pidocker_mounts_named_home_and_workspace_volumes(tmp_path):
