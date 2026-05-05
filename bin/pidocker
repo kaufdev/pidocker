@@ -92,6 +92,10 @@ set_secret() {
   else
     IFS= read -r value
   fi
+  if [[ -z "${value}" ]]; then
+    echo "pidocker: secret value must not be empty" >&2
+    exit 2
+  fi
 
   printf '%s' "${value}" | docker run \
     --rm \
