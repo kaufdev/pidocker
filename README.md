@@ -7,24 +7,16 @@
 - Docker installed and available on the host.
 - Network access for installing Pi and related packages during the image build.
 
-## Build the image
+## Install
 
-From the repository root:
-
-```bash
-docker build -t pidocker:local docker
-```
-
-The `pidocker` wrapper also builds the image automatically if `pidocker:local` does not exist. Override the image name with `PIDOCKER_IMAGE` if needed.
-
-## Install or update the `pidocker` command
-
-For a local installation, symlink the repository script into a directory on your `PATH`:
+Install with Homebrew:
 
 ```bash
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/bin/pidocker" ~/.local/bin/pidocker
+brew tap kaufdev/pidocker
+brew install pidocker
 ```
+
+Docker Desktop, OrbStack, Colima, or another Docker daemon must be running before starting `pidocker`.
 
 Verify the installed command:
 
@@ -33,14 +25,33 @@ which pidocker
 pidocker --help
 ```
 
-To update, pull the latest repository changes and rebuild the image:
+## Build the image
+
+The first `pidocker` run builds the Docker image automatically if `pidocker:local` does not exist. The Docker build output is expected on first run and is useful for troubleshooting.
+
+To build manually from the repository root:
+
+```bash
+docker build -t pidocker:local docker
+```
+
+Override the image name with `PIDOCKER_IMAGE` if needed.
+
+## Local development install
+
+For development, symlink the repository script into a directory on your `PATH`:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/bin/pidocker" ~/.local/bin/pidocker
+```
+
+To update a local development install, pull the latest repository changes and rebuild the image:
 
 ```bash
 git pull
 docker build -t pidocker:local docker
 ```
-
-If you install `pidocker` somewhere else, update that file or symlink so it points to the version you want to run.
 
 ## Run Pi
 
