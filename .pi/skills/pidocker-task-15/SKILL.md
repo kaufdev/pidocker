@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 15. Git push działa bez force push
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
