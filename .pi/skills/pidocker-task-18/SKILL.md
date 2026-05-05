@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 18. README opisuje użycie i bezpieczeństwo
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
