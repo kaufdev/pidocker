@@ -11,14 +11,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCKER_CONTEXT = REPO_ROOT / "docker"
 TEST_IMAGE = "pidocker:test-non-root-user"
 FORBIDDEN_HOST_PATHS = [
-    "/Users/kaufdev",
-    "/Users/kaufdev/projects",
-    "/Users/kaufdev/.ssh",
-    "/Users/kaufdev/.aws",
-    "/Users/kaufdev/.kube",
-    "/Users/kaufdev/.config",
-    "/Users/kaufdev/.npmrc",
-    "/Users/kaufdev/.m2",
+    "/Users/example-user",
+    "/Users/example-user/projects",
+    "/Users/example-user/.ssh",
+    "/Users/example-user/.aws",
+    "/Users/example-user/.kube",
+    "/Users/example-user/.config",
+    "/Users/example-user/.npmrc",
+    "/Users/example-user/.m2",
     "/var/run/docker.sock",
 ]
 
@@ -405,7 +405,7 @@ def test_git_can_clone_repo_into_workspace_repos_and_persist_it():
                 "bash",
                 "-lc",
                 "test -d /workspace/repos/cloned-repo/.git && "
-                "test ! -e /Users/kaufdev/projects && "
+                "test ! -e /Users/example-user/projects && "
                 "git -C /workspace/repos/cloned-repo rev-parse --git-dir",
             ],
             cwd=REPO_ROOT,
@@ -500,7 +500,7 @@ def test_notion_secret_path_is_sandboxed_and_persists_in_home_volume_between_con
                 "bash",
                 "-lc",
                 f"test -d /home/pi/.pidocker/secrets && "
-                f"test ! -e /Users/kaufdev/.config && "
+                f"test ! -e /Users/example-user/.config && "
                 f"echo NOTION_API_KEY=test > {notion_secret_file}",
             ],
             cwd=REPO_ROOT,
@@ -520,7 +520,7 @@ def test_notion_secret_path_is_sandboxed_and_persists_in_home_volume_between_con
                 "bash",
                 "-lc",
                 f"test -f {notion_secret_file} && "
-                f"test ! -e /Users/kaufdev/.config && "
+                f"test ! -e /Users/example-user/.config && "
                 f"cat {notion_secret_file}",
             ],
             cwd=REPO_ROOT,
@@ -719,7 +719,7 @@ def test_pidocker_ssh_setup_command_creates_dedicated_key_config_and_is_idempote
                 "grep -q 'Host github.com' /home/pi/.ssh/config && "
                 "grep -q 'IdentityFile /home/pi/.ssh/id_ed25519_pidocker_github' /home/pi/.ssh/config && "
                 "grep -q 'StrictHostKeyChecking accept-new' /home/pi/.ssh/config && "
-                "test ! -e /Users/kaufdev/.ssh",
+                "test ! -e /Users/example-user/.ssh",
             ],
             cwd=REPO_ROOT,
             text=True,
@@ -832,7 +832,7 @@ def test_dedicated_pidocker_ssh_key_can_be_generated_and_persists_in_home_volume
                 TEST_IMAGE,
                 "bash",
                 "-lc",
-                f"test -f {key_path} && test -f {key_path}.pub && test ! -e /Users/kaufdev/.ssh && cat {key_path}.pub",
+                f"test -f {key_path} && test -f {key_path}.pub && test ! -e /Users/example-user/.ssh && cat {key_path}.pub",
             ],
             cwd=REPO_ROOT,
             text=True,
@@ -1069,14 +1069,14 @@ def test_container_mounts_only_pidocker_volumes_and_cannot_see_private_host_path
                 container_id,
                 "bash",
                 "-lc",
-                "test ! -e /Users/kaufdev && "
-                "test ! -e /Users/kaufdev/projects && "
-                "test ! -e /Users/kaufdev/.ssh && "
-                "test ! -e /Users/kaufdev/.aws && "
-                "test ! -e /Users/kaufdev/.kube && "
-                "test ! -e /Users/kaufdev/.config && "
-                "test ! -e /Users/kaufdev/.npmrc && "
-                "test ! -e /Users/kaufdev/.m2 && "
+                "test ! -e /Users/example-user && "
+                "test ! -e /Users/example-user/projects && "
+                "test ! -e /Users/example-user/.ssh && "
+                "test ! -e /Users/example-user/.aws && "
+                "test ! -e /Users/example-user/.kube && "
+                "test ! -e /Users/example-user/.config && "
+                "test ! -e /Users/example-user/.npmrc && "
+                "test ! -e /Users/example-user/.m2 && "
                 "test ! -S /var/run/docker.sock",
             ],
             cwd=REPO_ROOT,

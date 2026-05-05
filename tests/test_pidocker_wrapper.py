@@ -6,14 +6,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIDOCKER = REPO_ROOT / "bin" / "pidocker"
 FORBIDDEN_HOST_PATHS = [
-    "/Users/kaufdev",
-    "/Users/kaufdev/projects",
-    "/Users/kaufdev/.ssh",
-    "/Users/kaufdev/.aws",
-    "/Users/kaufdev/.kube",
-    "/Users/kaufdev/.config",
-    "/Users/kaufdev/.npmrc",
-    "/Users/kaufdev/.m2",
+    "/Users/example-user",
+    "/Users/example-user/projects",
+    "/Users/example-user/.ssh",
+    "/Users/example-user/.aws",
+    "/Users/example-user/.kube",
+    "/Users/example-user/.config",
+    "/Users/example-user/.npmrc",
+    "/Users/example-user/.m2",
     "/var/run/docker.sock",
 ]
 FORBIDDEN_DOCKER_FLAGS = [
@@ -281,7 +281,7 @@ def test_pidocker_script_does_not_contain_forbidden_docker_flags_or_mounts():
 
     for forbidden_flag in FORBIDDEN_DOCKER_FLAGS:
         assert forbidden_flag not in script
-    for forbidden_path in ["/var/run/docker.sock", "/Users/kaufdev"]:
+    for forbidden_path in ["/var/run/docker.sock", "/Users/example-user"]:
         assert forbidden_path not in script
 
 

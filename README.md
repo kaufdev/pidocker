@@ -1,66 +1,66 @@
 # pidocker
 
-`pidocker` uruchamia Pi w izolowanym kontenerze Docker. Kontener używa wyłącznie nazwanych volumes `pidocker-home` i `pidocker-workspace`; nie montuje katalogów prywatnych hosta ani socketa Dockera.
+`pidocker` runs Pi inside an isolated Docker container. The container uses only the named volumes `pidocker-home` and `pidocker-workspace`; it does not mount private host directories or the Docker socket.
 
-## Wymagania
+## Requirements
 
-- Docker dostępny na hoście.
-- Dostęp do obrazu budowanego z tego repozytorium.
+- Docker installed and available on the host.
+- Network access for installing Pi and related packages during the image build.
 
-## Budowanie obrazu
+## Build the image
 
-Z katalogu repozytorium uruchom:
+From the repository root:
 
 ```bash
 docker build -t pidocker:local docker
 ```
 
-Wrapper `pidocker` buduje obraz automatycznie, jeśli `pidocker:local` jeszcze nie istnieje. Możesz nadpisać nazwę obrazu przez `PIDOCKER_IMAGE`.
+The `pidocker` wrapper also builds the image automatically if `pidocker:local` does not exist. Override the image name with `PIDOCKER_IMAGE` if needed.
 
-## Instalacja i aktualizacja komendy `pidocker`
+## Install or update the `pidocker` command
 
-Najprostsza lokalna instalacja to symlink do skryptu z repozytorium:
+For a local installation, symlink the repository script into a directory on your `PATH`:
 
 ```bash
 mkdir -p ~/.local/bin
 ln -sf "$(pwd)/bin/pidocker" ~/.local/bin/pidocker
 ```
 
-Upewnij się, że `~/.local/bin` jest w `PATH`:
+Verify the installed command:
 
 ```bash
 which pidocker
 pidocker --help
 ```
 
-Aktualizacja polega na pobraniu nowych zmian w repozytorium i ponownym zbudowaniu obrazu:
+To update, pull the latest repository changes and rebuild the image:
 
 ```bash
 git pull
 docker build -t pidocker:local docker
 ```
 
-Jeśli używasz innej lokalizacji instalacji, podmień tam plik/symlink tak, żeby zainstalowana komenda `pidocker` wskazywała na aktualną wersję.
+If you install `pidocker` somewhere else, update that file or symlink so it points to the version you want to run.
 
-## Uruchamianie Pi
+## Run Pi
 
-Uruchom interaktywnie:
+Start an interactive Pi session:
 
 ```bash
 pidocker
 ```
 
-Domyślnie wrapper startuje kontener z labelem `app=pidocker`, montuje volumes i wykonuje `pi` w katalogu `/workspace/repos`.
+By default the wrapper starts a container with the label `app=pidocker`, mounts the named volumes, starts in `/workspace/repos`, and runs `pi`.
 
-W Pi wykonaj logowanie:
+Inside Pi, log in with:
 
 ```text
 /login
 ```
 
-Auth Pi i sesje `/resume` są zapisywane w `pidocker-home`, więc zostają po restarcie kontenera.
+Pi authentication files and `/resume` sessions are stored in `pidocker-home`, so they survive container restarts.
 
-## Ręczne wejście do działającego kontenera
+## Enter the running container manually
 
 Terminal 1:
 
@@ -75,7 +75,7 @@ docker ps --filter "label=app=pidocker" --format "table {{.ID}}\t{{.Names}}\t{{.
 docker exec -it <CONTAINER_ID> bash
 ```
 
-W środku możesz sprawdzić:
+Useful checks inside the container:
 
 ```bash
 whoami
@@ -84,21 +84,21 @@ ls -la /home/pi
 ls -la /workspace
 ```
 
-## SSH key do Git i Azure DevOps
+## SSH keys for Git and Azure DevOps
 
-Wygeneruj dedykowane klucze wewnątrz `pidocker-home`:
+Generate dedicated keys inside `pidocker-home`:
 
 ```bash
 pidocker setupssh
 ```
 
-Komenda tworzy m.in. klucz dla Azure DevOps (`/home/pi/.ssh/id_rsa_pidocker_azure`) i wypisuje publiczny key. Dodaj go w Azure DevOps w:
+The command creates a dedicated Azure DevOps key at `/home/pi/.ssh/id_rsa_pidocker_azure` and prints the public key. Add that public key in Azure DevOps:
 
 ```text
 User settings -> SSH public keys -> New Key
 ```
 
-Potem klonuj repozytoria do `/workspace/repos`, np. wewnątrz kontenera:
+Then clone repositories into `/workspace/repos`, for example from inside the container:
 
 ```bash
 git clone git@ssh.dev.azure.com:v3/ORG/PROJECT/REPO /workspace/repos/REPO
@@ -106,49 +106,50 @@ git clone git@ssh.dev.azure.com:v3/ORG/PROJECT/REPO /workspace/repos/REPO
 
 ## Notion token
 
-Token Notion zapisz przez zainstalowaną komendę `pidocker`:
+Store a Notion token with the installed `pidocker` command:
 
 ```bash
 pidocker secrets set NOTION_API_KEY
 ```
 
-Sekret trafia do sandboxowego miejsca w `pidocker-home`: `/home/pi/.pidocker/secrets/env` oraz `/home/pi/.pidocker/secrets/notion.env`. Przy starcie `pidocker` ładuje te wartości jako zmienne środowiskowe dla Pi.
+The secret is stored in the sandboxed `pidocker-home` volume at `/home/pi/.pidocker/secrets/env` and `/home/pi/.pidocker/secrets/notion.env`. On startup, `pidocker` loads those values as environment variables for Pi.
 
-## Volumes i reset
+## Volumes and reset
 
-`pidocker` używa dwóch nazwanych volumes:
+`pidocker` uses two named volumes:
 
-- `pidocker-home` -> `/home/pi`: auth Pi, sesje, SSH keys, sekrety, konfiguracja.
-- `pidocker-workspace` -> `/workspace`: repozytoria i pliki pracy, w tym `/workspace/repos`.
+- `pidocker-home` -> `/home/pi`: Pi auth, sessions, SSH keys, secrets, and configuration.
+- `pidocker-workspace` -> `/workspace`: repositories and working files, including `/workspace/repos`.
 
-Reset świeżego środowiska usuwa oba volumes:
+Reset the environment by removing both volumes:
 
 ```bash
 docker volume rm -f pidocker-home pidocker-workspace
 ```
 
-Po resecie trzeba ponownie wykonać `/login`, `pidocker setupssh` i zapisać sekrety.
+After a reset, run `/login`, `pidocker setupssh`, and secret setup again.
 
-## Bezpieczeństwo i izolacja hosta
+## Host isolation and security
 
-Kontener nie widzi prywatnych ścieżek hosta takich jak `/Users/kaufdev`, katalogów projektu hosta, `~/.ssh`, `~/.aws`, `~/.kube` ani `/var/run/docker.sock`. Wrapper nie powinien używać `--privileged`, `--pid=host` ani `--network=host`.
+The container must not see private host paths such as the user's home directory, local project directories, `~/.ssh`, `~/.aws`, `~/.kube`, package-manager credentials, or `/var/run/docker.sock`. The wrapper must not use `--privileged`, `--pid=host`, or `--network=host`.
 
-Nie montuj prywatnych plików hosta do kontenera. Wszystko, co ma przetrwać, zapisuj w `pidocker-home` albo `pidocker-workspace`.
+Do not mount private host files into the container. Store persistent data only in `pidocker-home` or `pidocker-workspace`.
 
-## Git push i force push
+## Git push and force push
 
-W kontenerze lokalny wrapper `git` blokuje destrukcyjne operacje typu `force push`, `--force-with-lease`, `--mirror` i kasowanie zdalnych refów. Dodatkowo force push ma być zablokowany po stronie providera repozytorium, np. przez branch policies/protected branches w Azure DevOps albo GitHub.
+A local `git` wrapper inside the container blocks destructive pushes such as `force push`, `--force-with-lease`, `--mirror`, and remote ref deletion. Force push should also be blocked by the Git provider, for example with branch policies or protected branches in Azure DevOps or GitHub.
 
-Zwykły push jest dozwolony:
+A normal push is allowed:
 
 ```bash
-git push origin HEAD:twoja-galaz
+git push origin HEAD:your-branch
 ```
 
 ## Development
 
-Run tests from the host:
+Install development dependencies and run tests from the host:
 
 ```bash
+python -m pip install -r requirements-dev.txt
 pytest tests/
 ```

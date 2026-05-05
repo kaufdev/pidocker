@@ -11,7 +11,7 @@ REQUIRED_README_PHRASES = [
     "Azure DevOps",
     "Notion",
     "force push",
-    "/Users/kaufdev",
+    "user's home directory",
     "/var/run/docker.sock",
     "docker exec",
     "app=pidocker",

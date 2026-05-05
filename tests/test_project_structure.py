@@ -6,8 +6,6 @@ REQUIRED_PATHS = [
     "docker/Dockerfile",
     "tests",
     "README.md",
-    "PIDOCKER_MVP.md",
-    "PIDOCKER_TASKS.md",
 ]
 
 
