@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 14. Git clone z Azure DevOps przez dedykowany SSH key
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 
