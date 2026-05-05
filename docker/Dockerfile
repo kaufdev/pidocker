@@ -12,7 +12,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && chmod 755 /usr/local/bin/pidocker-ssh-setup /usr/local/bin/git \
     && useradd --create-home --home-dir /home/pi --shell /bin/bash pi \
-    && mkdir -p /workspace/repos \
+    && mkdir -p /home/pi/.pidocker/secrets /workspace/repos \
+    && chmod 700 /home/pi/.pidocker /home/pi/.pidocker/secrets \
     && chown -R pi:pi /home/pi /workspace
 
 USER pi

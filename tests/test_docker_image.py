@@ -370,6 +370,66 @@ def test_pi_auth_file_persists_in_home_volume_between_container_runs():
         remove_docker_volumes(home_volume, workspace_volume)
 
 
+def test_notion_secret_path_is_sandboxed_and_persists_in_home_volume_between_container_runs():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+    workspace_volume = f"{volume_prefix}-workspace"
+    notion_secret_file = "/home/pi/.pidocker/secrets/notion.env"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                f"test -d /home/pi/.pidocker/secrets && "
+                f"test ! -e /Users/kaufdev/.config && "
+                f"echo NOTION_API_KEY=test > {notion_secret_file}",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                f"test -f {notion_secret_file} && "
+                f"test ! -e /Users/kaufdev/.config && "
+                f"cat {notion_secret_file}",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert result.stdout.strip() == "NOTION_API_KEY=test"
+    finally:
+        remove_docker_volumes(home_volume, workspace_volume)
+
+
 def test_pi_resume_sessions_persist_in_home_volume_between_container_runs():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
