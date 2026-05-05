@@ -13,7 +13,7 @@ Before using this task skill, load the shared workflow if it is not already in c
 
 ## 16. Notion secret path jest sandboxowy i persystentny
 
-- [ ] Zrobione
+- [x] Zrobione
 
 ### Wymaganie
 

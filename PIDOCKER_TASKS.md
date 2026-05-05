@@ -28,7 +28,7 @@ Szczegóły konkretnego zadania są w odpowiadającym mu skillu. Ładuj tylko sk
 - [x] **13. Git clone do `/workspace/repos`** — `/skill:pidocker-task-13`
 - [x] **14. Git clone z Azure DevOps przez dedykowany SSH key** — `/skill:pidocker-task-14`
 - [x] **15. Git push działa bez force push** — `/skill:pidocker-task-15`
-- [ ] **16. Notion secret path jest sandboxowy i persystentny** — `/skill:pidocker-task-16`
+- [x] **16. Notion secret path jest sandboxowy i persystentny** — `/skill:pidocker-task-16`
 - [ ] **17. Web/search tooling dostępne w kontenerze** — `/skill:pidocker-task-17`
 - [ ] **18. README opisuje użycie i bezpieczeństwo** — `/skill:pidocker-task-18`
 
