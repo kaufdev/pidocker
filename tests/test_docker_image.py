@@ -112,6 +112,34 @@ def test_docker_image_contains_pi_command():
     assert result.stdout.splitlines()[0].endswith("/pi")
 
 
+def test_docker_image_contains_azure_cli_command():
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            TEST_IMAGE,
+            "bash",
+            "-lc",
+            "command -v az && az version --output json",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    stdout_lines = result.stdout.splitlines()
+    assert stdout_lines[0].endswith("/az")
+    assert "azure-cli" in json.loads("\n".join(stdout_lines[1:]))
+
+
 def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
     subprocess.run(
         ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],

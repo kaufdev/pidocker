@@ -71,6 +71,17 @@ Inside Pi, log in with:
 
 Pi authentication files and `/resume` sessions are stored in `pidocker-home`, so they survive container restarts.
 
+## Azure CLI context
+
+The image includes the Azure CLI (`az`) so Pi can inspect and manage Azure resources from inside the container.
+
+```bash
+az --version
+az login
+```
+
+Azure CLI configuration and login state under `/home/pi/.azure` are stored in `pidocker-home`, so the Azure context survives container restarts.
+
 ## Enter the running container manually
 
 Terminal 1:
