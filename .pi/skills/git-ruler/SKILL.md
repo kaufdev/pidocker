@@ -9,9 +9,8 @@ Use concise Conventional-style commit messages:
 
 ```bash
 feature(scope): summary
-fix(scope): summary
+bugfix(scope): summary
 docs(scope): summary
-chore(scope): summary
 ```
 
 Examples:
