@@ -11,6 +11,7 @@ description: Pidocker development, test handoff, and Homebrew release workflow. 
 - Do not edit shell rc/config for local testing. Prefer `~/.local/bin/pidocker-dev`.
 - If anything outside the repo is changed, record it and revert it before release.
 - Fix failing implementation; do not weaken tests unless requirements changed.
+- If changes only touch non-production files such as `AGENT.md`, `README.md`, or `.pi/skills/**`, skip the Homebrew release; pushing the default branch is enough.
 
 ## Change workflow
 
@@ -34,7 +35,7 @@ ln -sf "$PWD/bin/pidocker" ~/.local/bin/pidocker-dev
 docker run --rm pidocker:local sh -lc 'python3 --version && pytest --version'
 ```
 
-8. After approval, push the default branch (`main` in this repo) and run Homebrew release.
+8. After approval, push the default branch (`main` in this repo). Run Homebrew release only when production files changed; for non-production-only changes (`AGENT.md`, `README.md`, `.pi/skills/**`), stop after pushing the default branch.
 
 ## Homebrew release
 
