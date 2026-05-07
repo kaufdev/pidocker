@@ -8,7 +8,7 @@ description: Pidocker development, test handoff, and Homebrew release workflow. 
 ## Rules
 
 - No `pidocker --exec`; manual tests use installed commands.
-- Do not edit shell rc/config for local testing. Prefer `pidocker-dev`.
+- Do not edit shell rc/config for local testing. Prefer `~/.local/bin/pidocker-dev`.
 - If anything outside the repo is changed, record it and revert it before release.
 - Fix failing implementation; do not weaken tests unless requirements changed.
 
@@ -25,10 +25,10 @@ description: Pidocker development, test handoff, and Homebrew release workflow. 
 docker build -t pidocker:local docker
 mkdir -p ~/.local/bin
 ln -sf "$PWD/bin/pidocker" ~/.local/bin/pidocker-dev
-pidocker-dev --help
+~/.local/bin/pidocker-dev --help
 ```
 
-7. Ask user to test with `pidocker-dev ...`.
+7. Ask user to test with `~/.local/bin/pidocker-dev ...`.
 8. After approval, push the default branch (`main` in this repo) and run Homebrew release.
 
 ## Homebrew release
