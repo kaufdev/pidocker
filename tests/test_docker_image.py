@@ -140,6 +140,36 @@ def test_docker_image_contains_azure_cli_command():
     assert "azure-cli" in json.loads("\n".join(stdout_lines[1:]))
 
 
+def test_docker_image_contains_python_and_pytest():
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            TEST_IMAGE,
+            "bash",
+            "-lc",
+            "command -v python3 && python3 --version && command -v pytest && pytest --version",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    stdout_lines = result.stdout.splitlines()
+    assert stdout_lines[0].endswith("/python3")
+    assert stdout_lines[1].startswith("Python ")
+    assert stdout_lines[2].endswith("/pytest")
+    assert stdout_lines[3].startswith("pytest ")
+
+
 def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
     subprocess.run(
         ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],

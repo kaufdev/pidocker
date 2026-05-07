@@ -4,7 +4,7 @@ COPY pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
 COPY pidocker-git /usr/local/bin/git
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client \
+    && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client python3 python3-pytest \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL -o /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc \
     && gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg /tmp/microsoft.asc \
