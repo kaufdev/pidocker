@@ -28,7 +28,12 @@ ln -sf "$PWD/bin/pidocker" ~/.local/bin/pidocker-dev
 ~/.local/bin/pidocker-dev --help
 ```
 
-7. Ask user to test with `~/.local/bin/pidocker-dev ...`.
+7. Ask user to test with `~/.local/bin/pidocker-dev ...` and include task-specific verification commands they can run. For image package checks, a good example is:
+
+```bash
+docker run --rm pidocker:local sh -lc 'python3 --version && pytest --version'
+```
+
 8. After approval, push the default branch (`main` in this repo) and run Homebrew release.
 
 ## Homebrew release
@@ -37,7 +42,13 @@ ln -sf "$PWD/bin/pidocker" ~/.local/bin/pidocker-dev
 2. Tag next version, e.g. `v0.1.3`.
 3. Push default branch and tag.
 4. Download tag tarball and calculate SHA-256.
-5. Update `kaufdev/homebrew-pidocker/Formula/pidocker.rb`:
+5. Update the formula in the active Homebrew tap repo, not an arbitrary local clone:
+
+```bash
+tap_repo="$(brew --repo kaufdev/pidocker)"
+$EDITOR "$tap_repo/Formula/pidocker.rb"
+```
+
    - `url` -> new tag tarball,
    - `sha256` -> new digest,
    - keep `pidocker:v#{version}` image behavior.
