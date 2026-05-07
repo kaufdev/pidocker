@@ -1,6 +1,6 @@
 ---
 name: pidocker-task-flow
-description: Pidocker development, test handoff, commit naming, and Homebrew release workflow. Use for pidocker code changes, local manual testing, and brew deployment.
+description: Pidocker development, test handoff, and Homebrew release workflow. Use for pidocker code changes, local manual testing, and brew deployment.
 ---
 
 # Pidocker Task Flow
@@ -11,19 +11,6 @@ description: Pidocker development, test handoff, commit naming, and Homebrew rel
 - Do not edit shell rc/config for local testing. Prefer `pidocker-dev`.
 - If anything outside the repo is changed, record it and revert it before release.
 - Fix failing implementation; do not weaken tests unless requirements changed.
-
-## Commit naming
-
-Use concise Conventional-style names:
-
-```bash
-feature(scope): summary
-fix(scope): summary
-docs(scope): summary
-chore(scope): summary
-```
-
-Example: `feature(repo-argument): adding repo argument`.
 
 ## Change workflow
 
