@@ -15,13 +15,19 @@ pidocker - run Pi inside a Docker container
 
 Usage:
   pidocker [--help]
-  pidocker
+  pidocker [REPO|GIT_URL]
   pidocker setupssh
   pidocker secrets set KEY
+  pidocker completion bash|zsh
 
 Commands:
-  setupssh          Create/show the dedicated pidocker SSH public key
-  secrets set KEY   Read a secret value securely and store it in pidocker-home
+  setupssh              Create/show the dedicated pidocker SSH public key
+  secrets set KEY       Read a secret value securely and store it in pidocker-home
+  completion bash|zsh   Print shell completion for repository names
+
+Arguments:
+  REPO      Start Pi in /workspace/repos/REPO
+  GIT_URL   Clone the repository into /workspace/repos, then start Pi there
 
 Options:
   -h, --help    Show this help message and exit
@@ -44,6 +50,8 @@ ensure_image_exists() {
 }
 
 run_container() {
+  local repo_arg="${1:-}"
+
   ensure_docker_available
   ensure_image_exists
 
@@ -51,6 +59,7 @@ run_container() {
     --rm \
     -it \
     --label app=pidocker \
+    --env "PIDOCKER_REPO_ARG=${repo_arg}" \
     --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
     --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
     "${PIDOCKER_IMAGE}" \
@@ -80,6 +89,39 @@ NODE
           fi
         done < "${secrets_file}"
       fi
+      repo_arg="${PIDOCKER_REPO_ARG:-}"
+      workdir=/workspace/repos
+      if [ -n "${repo_arg}" ]; then
+        case "${repo_arg}" in
+          *://*|git@*|ssh://*|*.git)
+            repo_name="${repo_arg##*/}"
+            repo_name="${repo_name%.git}"
+            if [ -z "${repo_name}" ] || [ "${repo_name}" = ".." ] || [[ "${repo_name}" = */* ]]; then
+              echo "pidocker: could not derive repository name from URL: ${repo_arg}" >&2
+              exit 2
+            fi
+            workdir="/workspace/repos/${repo_name}"
+            if [ ! -d "${workdir}/.git" ]; then
+              mkdir -p /workspace/repos
+              git clone "${repo_arg}" "${workdir}"
+            fi
+            ;;
+          */*|.*|*..*)
+            echo "pidocker: repository name must be a direct child of /workspace/repos" >&2
+            exit 2
+            ;;
+          *)
+            workdir="/workspace/repos/${repo_arg}"
+            if [ ! -d "${workdir}" ]; then
+              echo "pidocker: repository not found: ${workdir}" >&2
+              echo "pidocker: available repositories:" >&2
+              find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "  %f\n" 2>/dev/null | sort >&2 || true
+              exit 2
+            fi
+            ;;
+        esac
+      fi
+      cd "${workdir}"
       exec pi
     '
 }
@@ -95,6 +137,42 @@ setup_ssh() {
     --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
     "${PIDOCKER_IMAGE}" \
     pidocker-ssh-setup
+}
+
+show_completion() {
+  local shell="${1:-}"
+  case "${shell}" in
+    bash)
+      cat <<'BASH'
+_pidocker_complete() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    local commands="setupssh secrets completion --help -h"
+    local repos
+    repos=$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null || true)
+    COMPREPLY=( $(compgen -W "${commands} ${repos}" -- "${cur}") )
+  fi
+}
+complete -F _pidocker_complete pidocker
+BASH
+      ;;
+    zsh)
+      cat <<'ZSH'
+#compdef pidocker
+_pidocker() {
+  local -a repos commands
+  commands=(setupssh secrets completion --help -h)
+  repos=(${(f)"$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null)"})
+  _describe 'pidocker arguments' commands repos
+}
+_pidocker "$@"
+ZSH
+      ;;
+    *)
+      echo "Usage: pidocker completion bash|zsh" >&2
+      exit 2
+      ;;
+  esac
 }
 
 set_secret() {
@@ -172,9 +250,23 @@ case "${1:-}" in
     fi
     set_secret "${3}"
     ;;
-  *)
+  completion)
+    if [[ -z "${2:-}" || -n "${3:-}" ]]; then
+      echo "Usage: pidocker completion bash|zsh" >&2
+      exit 2
+    fi
+    show_completion "${2}"
+    ;;
+  -* )
     echo "Unknown option: $1" >&2
     show_help >&2
     exit 2
+    ;;
+  *)
+    if [[ -n "${2:-}" ]]; then
+      echo "Usage: pidocker [REPO|GIT_URL]" >&2
+      exit 2
+    fi
+    run_container "${1}"
     ;;
 esac

@@ -188,6 +188,64 @@ def test_pidocker_secrets_set_rejects_empty_value(tmp_path):
     assert not any(call.startswith("run ") for call in docker_calls)
 
 
+def test_pidocker_accepts_repository_name_as_start_directory(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+
+    result = subprocess.run(
+        [str(PIDOCKER), "monorepo"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    docker_calls = docker_log.read_text().splitlines()
+    docker_run_calls = [call.split() for call in docker_calls if call.startswith("run ")]
+
+    assert docker_run_calls, docker_calls
+    docker_run_call = docker_run_calls[-1]
+    assert "--env" in docker_run_call
+    assert "PIDOCKER_REPO_ARG=monorepo" in docker_run_call
+
+
+def test_pidocker_can_print_shell_completion():
+    result = subprocess.run(
+        [str(PIDOCKER), "completion", "bash"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "complete -F _pidocker_complete pidocker" in result.stdout
+    assert "/workspace/repos" in result.stdout
+
+
+def test_pidocker_script_clones_git_url_and_changes_to_repo_before_pi():
+    script = PIDOCKER.read_text()
+
+    assert "PIDOCKER_REPO_ARG" in script
+    assert "git clone \"${repo_arg}\" \"${workdir}\"" in script
+    assert "cd \"${workdir}\"" in script
+    assert script.index("cd \"${workdir}\"") < script.index("exec pi")
+
+
 def test_pidocker_runs_pi_by_default(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"

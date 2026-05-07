@@ -63,6 +63,23 @@ pidocker
 
 By default the wrapper starts a container with the label `app=pidocker`, mounts the named volumes, starts in `/workspace/repos`, and runs `pi`.
 
+Start directly inside an existing repository so Pi loads that repository's `AGENTS.md` and skills:
+
+```bash
+pidocker monorepo
+```
+
+This starts Pi in `/workspace/repos/monorepo`.
+
+Clone a new GitHub or Azure DevOps repository into `/workspace/repos` and start Pi there:
+
+```bash
+pidocker git@ssh.dev.azure.com:v3/ORG/PROJECT/REPO
+pidocker git@github.com:ORG/REPO.git
+```
+
+If the repository directory already exists, `pidocker` reuses it instead of cloning again.
+
 Inside Pi, log in with:
 
 ```text
@@ -120,11 +137,35 @@ The command creates a dedicated Azure DevOps key at `/home/pi/.ssh/id_rsa_pidock
 User settings -> SSH public keys -> New Key
 ```
 
-Then clone repositories into `/workspace/repos`, for example from inside the container:
+Then clone repositories into `/workspace/repos` with `pidocker GIT_URL`:
+
+```bash
+pidocker git@ssh.dev.azure.com:v3/ORG/PROJECT/REPO
+```
+
+You can also clone manually from inside the container:
 
 ```bash
 git clone git@ssh.dev.azure.com:v3/ORG/PROJECT/REPO /workspace/repos/REPO
 ```
+
+## Shell completion
+
+`pidocker` can print shell completion that suggests command names and existing directories under `/workspace/repos`.
+
+Bash:
+
+```bash
+eval "$(pidocker completion bash)"
+```
+
+Zsh:
+
+```bash
+pidocker completion zsh > ~/.zfunc/_pidocker
+```
+
+Make sure `~/.zfunc` is on your `fpath`.
 
 ## Notion token
 
