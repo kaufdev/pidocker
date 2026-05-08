@@ -8,6 +8,8 @@ PIDOCKER_DOCKER_CONTEXT="${PIDOCKER_DOCKER_CONTEXT:-${REPO_ROOT}/docker}"
 PIDOCKER_VOLUME_PREFIX="${PIDOCKER_VOLUME_PREFIX:-pidocker}"
 PIDOCKER_HOME_VOLUME="${PIDOCKER_VOLUME_PREFIX}-home"
 PIDOCKER_WORKSPACE_VOLUME="${PIDOCKER_VOLUME_PREFIX}-workspace"
+PIDOCKER_CONFIG_DIR="${PIDOCKER_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/pidocker}"
+PIDOCKER_PACKAGES_FILE="${PIDOCKER_PACKAGES_FILE:-${PIDOCKER_CONFIG_DIR}/packages.json}"
 
 show_help() {
   cat <<'HELP'
@@ -18,12 +20,18 @@ Usage:
   pidocker [REPO|GIT_URL]
   pidocker setupssh
   pidocker secrets set KEY
+  pidocker packages add PACKAGE
+  pidocker packages remove PACKAGE
+  pidocker packages list
   pidocker completion bash|zsh
 
 Commands:
-  setupssh              Create/show the dedicated pidocker SSH public key
-  secrets set KEY       Read a secret value securely and store it in pidocker-home
-  completion bash|zsh   Print shell completion for repository names
+  setupssh                 Create/show the dedicated pidocker SSH public key
+  secrets set KEY          Read a secret value securely and store it in pidocker-home
+  packages add PACKAGE     Persist a pinned Pi package in host config
+  packages remove PACKAGE  Remove a package from host config
+  packages list            List packages from host config
+  completion bash|zsh      Print shell completion for repository names
 
 Arguments:
   REPO      Start Pi in /workspace/repos/REPO
@@ -49,17 +57,267 @@ ensure_image_exists() {
   docker build -t "${PIDOCKER_IMAGE}" "${PIDOCKER_DOCKER_CONTEXT}"
 }
 
+validate_package_spec() {
+  local spec="${1:-}"
+  local source ref remote
+
+  if [[ -z "${spec}" || "${spec}" == *[[:space:]]* || "${spec}" == *\"* || "${spec}" == *\\* ]]; then
+    echo "pidocker: package must be a single npm: or git: spec without spaces, quotes, or backslashes" >&2
+    return 2
+  fi
+
+  case "${spec}" in
+    npm:*)
+      if [[ ! "${spec}" =~ ^npm:(@[A-Za-z0-9._-]+/[A-Za-z0-9._-]+|[A-Za-z0-9._-]+)@[0-9][A-Za-z0-9._+-]*$ ]]; then
+        echo "pidocker: npm packages must be pinned, e.g. npm:@scope/name@1.2.3" >&2
+        return 2
+      fi
+      ;;
+    git:*)
+      source="${spec#git:}"
+      if [[ "${source}" != *@* ]]; then
+        echo "pidocker: git packages must include a pinned ref, e.g. git:github.com/org/repo@v1.2.3" >&2
+        return 2
+      fi
+      ref="${source##*@}"
+      remote="${source%@*}"
+      if [[ -z "${ref}" || -z "${remote}" ]]; then
+        echo "pidocker: git packages must include a remote and pinned ref" >&2
+        return 2
+      fi
+      case "${remote}" in
+        https://*|http://*|ssh://*|git://*|github.com/*|git@*:*) ;;
+        *)
+          echo "pidocker: git packages must use a remote git URL, not a local path" >&2
+          return 2
+          ;;
+      esac
+      ;;
+    *)
+      echo "pidocker: package must start with npm: or git:" >&2
+      return 2
+      ;;
+  esac
+}
+
+validate_package_remove_arg() {
+  local spec="${1:-}"
+  local source remote
+
+  if validate_package_spec "${spec}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [[ -z "${spec}" || "${spec}" == *[[:space:]]* || "${spec}" == *\"* || "${spec}" == *\\* ]]; then
+    echo "pidocker: package must be a single npm: or git: spec without spaces, quotes, or backslashes" >&2
+    return 2
+  fi
+
+  case "${spec}" in
+    npm:@[A-Za-z0-9._-]*/[A-Za-z0-9._-]*|npm:[A-Za-z0-9._-]*)
+      return 0
+      ;;
+    git:*)
+      source="${spec#git:}"
+      remote="${source%@*}"
+      case "${remote}" in
+        https://*|http://*|ssh://*|git://*|github.com/*|git@*:*) return 0 ;;
+      esac
+      ;;
+  esac
+
+  echo "pidocker: package to remove must be a valid npm: or git: package identity" >&2
+  return 2
+}
+
+package_identity() {
+  local spec="${1}"
+  local rest
+  case "${spec}" in
+    npm:*)
+      rest="${spec#npm:}"
+      if [[ "${rest}" == @*/*@* || "${rest}" == [!@]*@* ]]; then
+        printf '%s\n' "npm:${rest%@*}"
+      else
+        printf '%s\n' "npm:${rest}"
+      fi
+      ;;
+    git:*)
+      rest="${spec#git:}"
+      printf '%s\n' "git:${rest%@*}"
+      ;;
+    *)
+      printf '%s\n' "${spec}"
+      ;;
+  esac
+}
+
+read_host_packages() {
+  if [[ ! -f "${PIDOCKER_PACKAGES_FILE}" ]]; then
+    return 0
+  fi
+
+  awk '
+    /"packages"[[:space:]]*:[[:space:]]*\[/ {
+      if ($0 ~ /\[[[:space:]]*\]/) next
+      in_packages = 1
+      next
+    }
+    in_packages && /\]/ {
+      in_packages = 0
+      next
+    }
+    in_packages {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      sub(/[[:space:]]*,?[[:space:]]*$/, "", line)
+      if (line == "") next
+      if (line !~ /^"[^"\\]*"$/) {
+        print "pidocker: invalid packages config format: " FILENAME > "/dev/stderr"
+        exit 2
+      }
+      sub(/^"/, "", line)
+      sub(/"$/, "", line)
+      print line
+    }
+  ' "${PIDOCKER_PACKAGES_FILE}"
+}
+
+read_validated_host_packages() {
+  local spec tmp_file
+  tmp_file="$(mktemp)"
+  if ! read_host_packages > "${tmp_file}"; then
+    rm -f "${tmp_file}"
+    return 2
+  fi
+  while IFS= read -r spec; do
+    [[ -z "${spec}" ]] && continue
+    validate_package_spec "${spec}"
+    printf '%s\n' "${spec}"
+  done < "${tmp_file}"
+  rm -f "${tmp_file}"
+}
+
+write_packages_from_file() {
+  local source_file="${1}"
+  local tmp_file packages_file_dir
+  local first=1
+  local spec
+  packages_file_dir="$(dirname "${PIDOCKER_PACKAGES_FILE}")"
+  mkdir -p "${packages_file_dir}"
+  tmp_file="$(mktemp "${packages_file_dir}/packages.json.XXXXXX")"
+  {
+    printf '%s\n' '{'
+    printf '%s\n' '  "packages": ['
+    while IFS= read -r spec; do
+      [[ -z "${spec}" ]] && continue
+      if [[ "${first}" -eq 0 ]]; then
+        printf '%s\n' ','
+      fi
+      printf '    "%s"' "${spec}"
+      first=0
+    done < "${source_file}"
+    if [[ "${first}" -eq 0 ]]; then
+      printf '%s\n' ''
+    fi
+    printf '%s\n' '  ]'
+    printf '%s\n' '}'
+  } > "${tmp_file}"
+  mv "${tmp_file}" "${PIDOCKER_PACKAGES_FILE}"
+}
+
+host_package_specs_b64() {
+  local packages
+  packages="$(read_validated_host_packages)"
+  printf '%s' "${packages}" | base64 | tr -d '\n'
+}
+
+packages_add() {
+  local spec="${1:-}"
+  local spec_identity existing existing_identity tmp_file existing_file
+  if [[ -z "${spec}" || $# -ne 1 ]]; then
+    echo "Usage: pidocker packages add PACKAGE" >&2
+    exit 2
+  fi
+  validate_package_spec "${spec}"
+  spec_identity="$(package_identity "${spec}")"
+  tmp_file="$(mktemp)"
+  existing_file="$(mktemp)"
+  read_validated_host_packages > "${existing_file}"
+  while IFS= read -r existing; do
+    [[ -z "${existing}" ]] && continue
+    existing_identity="$(package_identity "${existing}")"
+    if [[ "${existing_identity}" != "${spec_identity}" ]]; then
+      printf '%s\n' "${existing}" >> "${tmp_file}"
+    fi
+  done < "${existing_file}"
+  printf '%s\n' "${spec}" >> "${tmp_file}"
+  write_packages_from_file "${tmp_file}"
+  rm -f "${tmp_file}" "${existing_file}"
+  echo "Configured package ${spec} in ${PIDOCKER_PACKAGES_FILE}."
+}
+
+packages_remove() {
+  local spec="${1:-}"
+  local spec_identity existing existing_identity tmp_file existing_file removed=0
+  if [[ -z "${spec}" || $# -ne 1 ]]; then
+    echo "Usage: pidocker packages remove PACKAGE" >&2
+    exit 2
+  fi
+  validate_package_remove_arg "${spec}"
+  spec_identity="$(package_identity "${spec}")"
+  tmp_file="$(mktemp)"
+  existing_file="$(mktemp)"
+  read_validated_host_packages > "${existing_file}"
+  while IFS= read -r existing; do
+    [[ -z "${existing}" ]] && continue
+    existing_identity="$(package_identity "${existing}")"
+    if [[ "${existing_identity}" = "${spec_identity}" ]]; then
+      removed=1
+    else
+      printf '%s\n' "${existing}" >> "${tmp_file}"
+    fi
+  done < "${existing_file}"
+  write_packages_from_file "${tmp_file}"
+  rm -f "${tmp_file}" "${existing_file}"
+  if [[ "${removed}" -eq 1 ]]; then
+    echo "Removed package ${spec_identity} from ${PIDOCKER_PACKAGES_FILE}."
+  else
+    echo "Package ${spec_identity} was not configured."
+  fi
+}
+
+packages_list() {
+  local found=0
+  local spec existing_file
+  existing_file="$(mktemp)"
+  read_validated_host_packages > "${existing_file}"
+  while IFS= read -r spec; do
+    [[ -z "${spec}" ]] && continue
+    printf '%s\n' "${spec}"
+    found=1
+  done < "${existing_file}"
+  rm -f "${existing_file}"
+  if [[ "${found}" -eq 0 ]]; then
+    echo "No host packages configured."
+  fi
+}
+
 run_container() {
   local repo_arg="${1:-}"
 
   ensure_docker_available
   ensure_image_exists
 
+  local package_specs_b64
+  package_specs_b64="$(host_package_specs_b64)"
+
   exec docker run \
     --rm \
     -it \
     --label app=pidocker \
     --env "PIDOCKER_REPO_ARG=${repo_arg}" \
+    --env "PIDOCKER_PACKAGE_SPECS_B64=${package_specs_b64}" \
     --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
     --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
     "${PIDOCKER_IMAGE}" \
@@ -75,8 +333,14 @@ try {
   settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
 } catch (_) {}
 if (!Array.isArray(settings.packages)) settings.packages = [];
-if (!settings.packages.includes("npm:pi-web-access")) {
-  settings.packages.push("npm:pi-web-access");
+const hostPackages = Buffer.from(process.env.PIDOCKER_PACKAGE_SPECS_B64 || "", "base64")
+  .toString("utf8")
+  .split(/\n/)
+  .filter(Boolean);
+for (const pkg of ["npm:pi-web-access", ...hostPackages]) {
+  if (!settings.packages.includes(pkg)) {
+    settings.packages.push(pkg);
+  }
 }
 fs.writeFileSync(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
 NODE
@@ -147,7 +411,7 @@ show_completion() {
 _pidocker_complete() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    local commands="setupssh secrets completion --help -h"
+    local commands="setupssh secrets packages completion --help -h"
     local repos
     repos=$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null || true)
     COMPREPLY=( $(compgen -W "${commands} ${repos}" -- "${cur}") )
@@ -161,7 +425,7 @@ BASH
 #compdef pidocker
 _pidocker() {
   local -a repos commands
-  commands=(setupssh secrets completion --help -h)
+  commands=(setupssh secrets packages completion --help -h)
   repos=(${(f)"$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null)"})
   _describe 'pidocker arguments' commands repos
 }
@@ -249,6 +513,35 @@ case "${1:-}" in
       exit 2
     fi
     set_secret "${3}"
+    ;;
+  packages)
+    case "${2:-}" in
+      add)
+        if [[ -z "${3:-}" || -n "${4:-}" ]]; then
+          echo "Usage: pidocker packages add PACKAGE" >&2
+          exit 2
+        fi
+        packages_add "${3}"
+        ;;
+      remove)
+        if [[ -z "${3:-}" || -n "${4:-}" ]]; then
+          echo "Usage: pidocker packages remove PACKAGE" >&2
+          exit 2
+        fi
+        packages_remove "${3}"
+        ;;
+      list)
+        if [[ -n "${3:-}" ]]; then
+          echo "Usage: pidocker packages list" >&2
+          exit 2
+        fi
+        packages_list
+        ;;
+      *)
+        echo "Usage: pidocker packages add|remove|list [PACKAGE]" >&2
+        exit 2
+        ;;
+    esac
     ;;
   completion)
     if [[ -z "${2:-}" || -n "${3:-}" ]]; then

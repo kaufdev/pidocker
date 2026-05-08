@@ -61,6 +61,43 @@ def test_docker_image_runs_as_pi_non_root_with_workspace_dirs():
     assert stdout_lines[1] == "pi"
 
 
+def test_docker_image_uses_writable_home_npm_global_prefix_with_home_volume():
+    volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
+    home_volume = f"{volume_prefix}-home"
+
+    subprocess.run(
+        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "test \"$(npm config get prefix)\" = /home/pi/.npm-global && "
+                "mkdir -p \"$(npm config get prefix)/lib/node_modules/@pidocker-test\" && "
+                "test -w \"$(npm config get prefix)/lib/node_modules/@pidocker-test\" && "
+                "case \":$PATH:\" in *:/home/pi/.npm-global/bin:*) exit 0 ;; *) exit 1 ;; esac",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        assert result.returncode == 0
+    finally:
+        remove_docker_volumes(home_volume)
+
+
 def test_docker_image_uses_pi_as_default_command():
     subprocess.run(
         ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
@@ -187,14 +224,14 @@ def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
             "-lc",
             "set -euo pipefail && "
             "npm list -g --depth=0 pi-web-access >/dev/null && "
-            "node -e 'const pkg=require(\"/usr/local/lib/node_modules/pi-web-access/package.json\"); "
+            "node -e 'const pkg=require(\"/home/pi/.npm-global/lib/node_modules/pi-web-access/package.json\"); "
             "if (!pkg.pi || !pkg.pi.extensions || !pkg.pi.extensions.includes(\"./index.ts\")) process.exit(1)' && "
             "grep -q 'npm:pi-web-access' /home/pi/.pi/agent/settings.json && "
-            "test -f /usr/local/lib/node_modules/pi-web-access/skills/librarian/SKILL.md && "
-            "grep -q 'web_search' /usr/local/lib/node_modules/pi-web-access/index.ts && "
-            "grep -q 'code_search' /usr/local/lib/node_modules/pi-web-access/index.ts && "
-            "grep -q 'fetch_content' /usr/local/lib/node_modules/pi-web-access/index.ts && "
-            "grep -q 'get_search_content' /usr/local/lib/node_modules/pi-web-access/index.ts",
+            "test -f /home/pi/.npm-global/lib/node_modules/pi-web-access/skills/librarian/SKILL.md && "
+            "grep -q 'web_search' /home/pi/.npm-global/lib/node_modules/pi-web-access/index.ts && "
+            "grep -q 'code_search' /home/pi/.npm-global/lib/node_modules/pi-web-access/index.ts && "
+            "grep -q 'fetch_content' /home/pi/.npm-global/lib/node_modules/pi-web-access/index.ts && "
+            "grep -q 'get_search_content' /home/pi/.npm-global/lib/node_modules/pi-web-access/index.ts",
         ],
         cwd=REPO_ROOT,
         text=True,

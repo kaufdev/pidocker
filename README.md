@@ -149,6 +149,20 @@ You can also clone manually from inside the container:
 git clone git@ssh.dev.azure.com:v3/ORG/PROJECT/REPO /workspace/repos/REPO
 ```
 
+## Pi packages
+
+Persist client-specific Pi packages in host config without mounting host files into the container:
+
+```bash
+pidocker packages add npm:@client/pi-tools@1.2.3
+pidocker packages list
+pidocker packages remove npm:@client/pi-tools
+```
+
+The host package list is stored at `~/.config/pidocker/packages.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_PACKAGES_FILE` is set. On startup, `pidocker` validates this file, passes only the package specs into the container, and merges them into `/home/pi/.pi/agent/settings.json` together with the built-in `npm:pi-web-access` package.
+
+Package specs must be pinned npm packages such as `npm:@client/pi-tools@1.2.3` or pinned remote git packages such as `git:github.com/client/pi-tools@v1.2.3`. Local paths are rejected so pidocker does not need host mounts. Pi packages can execute code inside the container, so install only packages you trust.
+
 ## Shell completion
 
 `pidocker` can print shell completion that suggests command names and existing directories under `/workspace/repos`.
@@ -190,7 +204,7 @@ Reset the environment by removing both volumes:
 docker volume rm -f pidocker-home pidocker-workspace
 ```
 
-After a reset, run `/login`, `pidocker setupssh`, and secret setup again.
+After a reset, run `/login`, `pidocker setupssh`, and secret setup again. Host package config from `~/.config/pidocker/packages.json` is reapplied automatically on the next `pidocker` run.
 
 ## Host isolation and security
 

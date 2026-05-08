@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -235,6 +237,130 @@ def test_pidocker_can_print_shell_completion():
     assert result.returncode == 0
     assert "complete -F _pidocker_complete pidocker" in result.stdout
     assert "/workspace/repos" in result.stdout
+
+
+def test_pidocker_packages_add_list_and_remove_use_host_config(tmp_path):
+    config_dir = tmp_path / "config"
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+
+    add_result = subprocess.run(
+        [str(PIDOCKER), "packages", "add", "npm:@client/pi-tools@1.2.3"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert add_result.returncode == 0
+    packages_file = config_dir / "packages.json"
+    assert json.loads(packages_file.read_text()) == {
+        "packages": ["npm:@client/pi-tools@1.2.3"]
+    }
+
+    list_result = subprocess.run(
+        [str(PIDOCKER), "packages", "list"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert list_result.returncode == 0
+    assert list_result.stdout.strip() == "npm:@client/pi-tools@1.2.3"
+
+    remove_result = subprocess.run(
+        [str(PIDOCKER), "packages", "remove", "npm:@client/pi-tools"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert remove_result.returncode == 0
+    assert json.loads(packages_file.read_text()) == {"packages": []}
+
+
+def test_pidocker_packages_add_rejects_unpinned_or_local_packages(tmp_path):
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+
+    unpinned_result = subprocess.run(
+        [str(PIDOCKER), "packages", "add", "npm:@client/pi-tools"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    local_result = subprocess.run(
+        [str(PIDOCKER), "packages", "add", "git:../pi-tools@v1"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert unpinned_result.returncode == 2
+    assert "npm packages must be pinned" in unpinned_result.stderr
+    assert local_result.returncode == 2
+    assert "not a local path" in local_result.stderr
+
+
+def test_pidocker_passes_host_packages_without_mounting_host_config(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    config_dir = tmp_path / "config"
+    packages_file = config_dir / "packages.json"
+    config_dir.mkdir()
+    packages_file.write_text(
+        '{\n'
+        '  "packages": [\n'
+        '    "npm:@client/pi-tools@1.2.3"\n'
+        '  ]\n'
+        '}\n'
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+
+    result = subprocess.run(
+        [str(PIDOCKER)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    docker_calls = docker_log.read_text().splitlines()
+    docker_run_calls = [call.split() for call in docker_calls if call.startswith("run ")]
+
+    assert docker_run_calls, docker_calls
+    docker_run_call = docker_run_calls[-1]
+    package_env = next(
+        arg for arg in docker_run_call if arg.startswith("PIDOCKER_PACKAGE_SPECS_B64=")
+    )
+    encoded_packages = package_env.split("=", 1)[1]
+    assert base64.b64decode(encoded_packages).decode() == "npm:@client/pi-tools@1.2.3"
+    assert str(config_dir) not in " ".join(docker_run_call)
+    assert str(packages_file) not in " ".join(docker_run_call)
 
 
 def test_pidocker_script_clones_git_url_and_changes_to_repo_before_pi():
