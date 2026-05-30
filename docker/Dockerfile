@@ -1,10 +1,13 @@
-FROM debian:bookworm-slim
+FROM python:3.13-slim-bookworm
+
+ARG PI_CODING_AGENT_VERSION=0.73.1
+ARG PI_WEB_ACCESS_VERSION=0.10.7
 
 COPY pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
 COPY pidocker-git /usr/local/bin/git
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client python3 python3-pytest \
+    && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL -o /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc \
     && gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg /tmp/microsoft.asc \
@@ -22,13 +25,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends azure-cli \
     && npm install -g n \
     && n lts \
-    && npm install -g @mariozechner/pi-coding-agent \
+    && npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}" \
+    && python -m pip install --no-cache-dir pytest \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && chmod 755 /usr/local/bin/pidocker-ssh-setup /usr/local/bin/git \
     && useradd --create-home --home-dir /home/pi --shell /bin/bash pi \
     && mkdir -p /home/pi/.npm-global /home/pi/.pidocker/secrets /home/pi/.pi/agent /workspace/repos \
-    && NPM_CONFIG_PREFIX=/home/pi/.npm-global npm install -g pi-web-access \
+    && NPM_CONFIG_PREFIX=/home/pi/.npm-global npm install -g "pi-web-access@${PI_WEB_ACCESS_VERSION}" \
     && printf '%s\n' '{"packages":["npm:pi-web-access"]}' > /home/pi/.pi/agent/settings.json \
     && printf '%s\n' \
       'export NPM_CONFIG_PREFIX=/home/pi/.npm-global' \

@@ -9,6 +9,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCKER_CONTEXT = REPO_ROOT / "docker"
+DOCKERFILE = DOCKER_CONTEXT / "Dockerfile"
 TEST_IMAGE = "pidocker:test-non-root-user"
 FORBIDDEN_HOST_PATHS = [
     "/Users/example-user",
@@ -149,6 +150,21 @@ def test_docker_image_contains_pi_command():
     assert result.stdout.splitlines()[0].endswith("/pi")
 
 
+def test_dockerfile_uses_python_313_base_image():
+    dockerfile = DOCKERFILE.read_text()
+
+    assert dockerfile.startswith("FROM python:3.13-slim-bookworm\n")
+
+
+def test_dockerfile_installs_pinned_pi_packages():
+    dockerfile = DOCKERFILE.read_text()
+
+    assert "ARG PI_CODING_AGENT_VERSION=0.73.1" in dockerfile
+    assert "ARG PI_WEB_ACCESS_VERSION=0.10.7" in dockerfile
+    assert "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}" in dockerfile
+    assert "pi-web-access@${PI_WEB_ACCESS_VERSION}" in dockerfile
+
+
 def test_docker_image_contains_azure_cli_command():
     subprocess.run(
         ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
@@ -192,7 +208,9 @@ def test_docker_image_contains_python_and_pytest():
             TEST_IMAGE,
             "bash",
             "-lc",
-            "command -v python3 && python3 --version && command -v pytest && pytest --version",
+            "command -v python && python --version && "
+            "command -v python3 && python3 --version && "
+            "command -v pytest && python -m pytest --version",
         ],
         cwd=REPO_ROOT,
         text=True,
@@ -201,10 +219,12 @@ def test_docker_image_contains_python_and_pytest():
     )
 
     stdout_lines = result.stdout.splitlines()
-    assert stdout_lines[0].endswith("/python3")
-    assert stdout_lines[1].startswith("Python ")
-    assert stdout_lines[2].endswith("/pytest")
-    assert stdout_lines[3].startswith("pytest ")
+    assert stdout_lines[0].endswith("/python")
+    assert stdout_lines[1].startswith("Python 3.13.")
+    assert stdout_lines[2].endswith("/python3")
+    assert stdout_lines[3].startswith("Python 3.13.")
+    assert stdout_lines[4].endswith("/pytest")
+    assert stdout_lines[5].startswith("pytest ")
 
 
 def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
@@ -224,7 +244,10 @@ def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
             "-lc",
             "set -euo pipefail && "
             "npm list -g --depth=0 pi-web-access >/dev/null && "
+            "node -e 'const pkg=require(\"/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/package.json\"); "
+            "if (pkg.version !== \"0.73.1\") process.exit(1)' && "
             "node -e 'const pkg=require(\"/home/pi/.npm-global/lib/node_modules/pi-web-access/package.json\"); "
+            "if (pkg.version !== \"0.10.7\") process.exit(1); "
             "if (!pkg.pi || !pkg.pi.extensions || !pkg.pi.extensions.includes(\"./index.ts\")) process.exit(1)' && "
             "grep -q 'npm:pi-web-access' /home/pi/.pi/agent/settings.json && "
             "test -f /home/pi/.npm-global/lib/node_modules/pi-web-access/skills/librarian/SKILL.md && "
