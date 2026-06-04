@@ -176,7 +176,7 @@ pidocker packages remove npm:@client/pi-tools
 Install the subagents extension package:
 
 ```bash
-pidocker packages add git:github.com/kaufdev/pi-subagents@v0.1.1
+pidocker packages add git:github.com/kaufdev/pi-subagents@v0.1.2
 ```
 
 The host package list is stored at `~/.config/pidocker/packages.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_PACKAGES_FILE` is set. On startup, `pidocker` validates this file, passes only the package specs into the container, and merges them into `/home/pi/.pi/agent/settings.json` together with the built-in `npm:pi-web-access` package.
