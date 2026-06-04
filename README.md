@@ -212,11 +212,9 @@ The container must not see private host paths such as the user's home directory,
 
 Do not mount private host files into the container. Store persistent data only in `pidocker-home` or `pidocker-workspace`.
 
-## Git push and force push
+## Git push
 
-A local `git` wrapper inside the container blocks destructive pushes such as `force push`, `--force-with-lease`, `--mirror`, and remote ref deletion. Force push should also be blocked by the Git provider, for example with branch policies or protected branches in Azure DevOps or GitHub.
-
-A normal push is allowed:
+The container uses the standard Git client. Push behavior, including force pushes, is controlled by the remote Git provider and repository branch protections.
 
 ```bash
 git push origin HEAD:your-branch

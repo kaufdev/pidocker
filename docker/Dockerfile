@@ -4,7 +4,6 @@ ARG PI_CODING_AGENT_VERSION=0.73.1
 ARG PI_WEB_ACCESS_VERSION=0.10.7
 
 COPY pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
-COPY pidocker-git /usr/local/bin/git
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client \
@@ -29,7 +28,7 @@ RUN apt-get update \
     && python -m pip install --no-cache-dir pytest \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && chmod 755 /usr/local/bin/pidocker-ssh-setup /usr/local/bin/git \
+    && chmod 755 /usr/local/bin/pidocker-ssh-setup \
     && useradd --create-home --home-dir /home/pi --shell /bin/bash pi \
     && mkdir -p /home/pi/.npm-global /home/pi/.pidocker/secrets /home/pi/.pi/agent /workspace/repos \
     && NPM_CONFIG_PREFIX=/home/pi/.npm-global npm install -g "pi-web-access@${PI_WEB_ACCESS_VERSION}" \

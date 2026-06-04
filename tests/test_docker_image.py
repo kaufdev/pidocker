@@ -1047,7 +1047,7 @@ def test_azure_devops_clone_uses_dedicated_pidocker_ssh_key_and_workspace_repo_p
         remove_docker_volumes(home_volume, workspace_volume)
 
 
-def test_git_push_wrapper_blocks_destructive_pushes_but_allows_normal_push():
+def test_git_allows_force_pushes_and_normal_pushes():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
     workspace_volume = f"{volume_prefix}-workspace"
@@ -1088,35 +1088,27 @@ def test_git_push_wrapper_blocks_destructive_pushes_but_allows_normal_push():
             check=True,
         )
 
-        forbidden_pushes = [
-            "git push --force origin HEAD:test-force",
-            "git push --force-with-lease origin HEAD:test-force-with-lease",
-            "git push --mirror origin",
-            "git push origin :some-branch",
-        ]
-        for command in forbidden_pushes:
-            result = subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "--volume",
-                    f"{home_volume}:/home/pi",
-                    "--volume",
-                    f"{workspace_volume}:/workspace",
-                    TEST_IMAGE,
-                    "bash",
-                    "-lc",
-                    f"cd /workspace/repos/push-test && {command}",
-                ],
-                cwd=REPO_ROOT,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{home_volume}:/home/pi",
+                "--volume",
+                f"{workspace_volume}:/workspace",
+                TEST_IMAGE,
+                "bash",
+                "-lc",
+                "cd /workspace/repos/push-test && git push --force origin HEAD:test-force",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
 
-            assert result.returncode != 0, command
-            assert "pidocker: force push is disabled" in result.stderr
+        assert "test-force" in result.stderr
 
         result = subprocess.run(
             [
