@@ -173,9 +173,34 @@ pidocker packages list
 pidocker packages remove npm:@client/pi-tools
 ```
 
+Install the subagents extension package:
+
+```bash
+pidocker packages add git:github.com/kaufdev/pi-subagents@v0.1.1
+```
+
 The host package list is stored at `~/.config/pidocker/packages.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_PACKAGES_FILE` is set. On startup, `pidocker` validates this file, passes only the package specs into the container, and merges them into `/home/pi/.pi/agent/settings.json` together with the built-in `npm:pi-web-access` package.
 
 Package specs must be pinned npm packages such as `npm:@client/pi-tools@1.2.3` or pinned remote git packages such as `git:github.com/client/pi-tools@v1.2.3`. Local paths are rejected so pidocker does not need host mounts. Pi packages can execute code inside the container, so install only packages you trust.
+
+## Pi agents
+
+Sync global Pi agent definitions from the host into `pidocker-home`:
+
+```bash
+pidocker agents sync
+pidocker agents list
+```
+
+By default this copies host files from `~/.pi/agent/agents/*.md` into `/home/pi/.pi/agent/agents/*.md` inside the `pidocker-home` volume. Override the host directory with `PIDOCKER_HOST_AGENTS_DIR` if needed.
+
+Sync only copies and overwrites matching files. To mirror the host directory and remove pidocker agents that no longer exist on the host:
+
+```bash
+pidocker agents sync --delete
+```
+
+This is a one-shot tar stream into the Docker volume, not a persistent host mount.
 
 ## Shell completion
 

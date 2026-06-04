@@ -10,6 +10,7 @@ PIDOCKER_HOME_VOLUME="${PIDOCKER_VOLUME_PREFIX}-home"
 PIDOCKER_WORKSPACE_VOLUME="${PIDOCKER_VOLUME_PREFIX}-workspace"
 PIDOCKER_CONFIG_DIR="${PIDOCKER_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/pidocker}"
 PIDOCKER_PACKAGES_FILE="${PIDOCKER_PACKAGES_FILE:-${PIDOCKER_CONFIG_DIR}/packages.json}"
+PIDOCKER_HOST_AGENTS_DIR="${PIDOCKER_HOST_AGENTS_DIR:-${HOME}/.pi/agent/agents}"
 
 show_help() {
   cat <<'HELP'
@@ -23,6 +24,8 @@ Usage:
   pidocker packages add PACKAGE
   pidocker packages remove PACKAGE
   pidocker packages list
+  pidocker agents sync [--delete]
+  pidocker agents list
   pidocker completion bash|zsh
 
 Commands:
@@ -31,6 +34,8 @@ Commands:
   packages add PACKAGE     Persist a pinned Pi package in host config
   packages remove PACKAGE  Remove a package from host config
   packages list            List packages from host config
+  agents sync [--delete]   Sync host Pi agents into pidocker-home
+  agents list              List host and pidocker global agents
   completion bash|zsh      Print shell completion for repository names
 
 Arguments:
@@ -303,6 +308,75 @@ packages_list() {
   fi
 }
 
+list_host_agents() {
+  if [[ ! -d "${PIDOCKER_HOST_AGENTS_DIR}" ]]; then
+    return 0
+  fi
+  find "${PIDOCKER_HOST_AGENTS_DIR}" -maxdepth 1 -type f -name '*.md' -print 2>/dev/null \
+    | sed 's#^.*/##' \
+    | sort
+}
+
+agents_list() {
+  ensure_docker_available
+  ensure_image_exists
+
+  echo "Host agents (${PIDOCKER_HOST_AGENTS_DIR}):"
+  if ! list_host_agents | sed 's/^/  /'; then
+    true
+  fi
+
+  echo "Pidocker agents (/home/pi/.pi/agent/agents):"
+  docker run \
+    --rm \
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+    "${PIDOCKER_IMAGE}" \
+    bash -lc 'find /home/pi/.pi/agent/agents -maxdepth 1 -type f -name "*.md" -printf "%f\n" 2>/dev/null | sort | sed "s/^/  /"'
+}
+
+agents_sync() {
+  local delete_mode=0
+  local tmp_dir synced_count=0
+  if [[ "${1:-}" = "--delete" ]]; then
+    delete_mode=1
+    shift
+  fi
+  if [[ $# -ne 0 ]]; then
+    echo "Usage: pidocker agents sync [--delete]" >&2
+    exit 2
+  fi
+
+  ensure_docker_available
+  ensure_image_exists
+
+  tmp_dir="$(mktemp -d)"
+  if [[ -d "${PIDOCKER_HOST_AGENTS_DIR}" ]]; then
+    while IFS= read -r -d '' file; do
+      cp "${file}" "${tmp_dir}/"
+      synced_count=$((synced_count + 1))
+    done < <(find "${PIDOCKER_HOST_AGENTS_DIR}" -maxdepth 1 -type f -name '*.md' -print0 2>/dev/null)
+  fi
+
+  COPYFILE_DISABLE=1 tar --no-xattrs -C "${tmp_dir}" -cf - . | docker run \
+    --rm \
+    -i \
+    --env "PIDOCKER_AGENTS_DELETE=${delete_mode}" \
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+    "${PIDOCKER_IMAGE}" \
+    bash -lc '
+      set -euo pipefail
+      agents_dir=/home/pi/.pi/agent/agents
+      mkdir -p "${agents_dir}"
+      if [ "${PIDOCKER_AGENTS_DELETE:-0}" = "1" ]; then
+        find "${agents_dir}" -maxdepth 1 -type f -name "*.md" -delete
+      fi
+      tar -C "${agents_dir}" -xf -
+    '
+
+  rm -rf "${tmp_dir}"
+  echo "Synced ${synced_count} host agent(s) from ${PIDOCKER_HOST_AGENTS_DIR} to pidocker-home."
+}
+
 run_container() {
   local repo_arg="${1:-}"
 
@@ -443,7 +517,7 @@ show_completion() {
 _pidocker_complete() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    local commands="setupssh secrets packages completion --help -h"
+    local commands="setupssh secrets packages agents completion --help -h"
     local repos
     repos=$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null || true)
     COMPREPLY=( $(compgen -W "${commands} ${repos}" -- "${cur}") )
@@ -457,7 +531,7 @@ BASH
 #compdef pidocker
 _pidocker() {
   local -a repos commands
-  commands=(setupssh secrets packages completion --help -h)
+  commands=(setupssh secrets packages agents completion --help -h)
   repos=(${(f)"$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null)"})
   _describe 'pidocker arguments' commands repos
 }
@@ -571,6 +645,32 @@ case "${1:-}" in
         ;;
       *)
         echo "Usage: pidocker packages add|remove|list [PACKAGE]" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  agents)
+    case "${2:-}" in
+      sync)
+        if [[ -n "${4:-}" ]]; then
+          echo "Usage: pidocker agents sync [--delete]" >&2
+          exit 2
+        fi
+        if [[ -n "${3:-}" ]]; then
+          agents_sync "${3}"
+        else
+          agents_sync
+        fi
+        ;;
+      list)
+        if [[ -n "${3:-}" ]]; then
+          echo "Usage: pidocker agents list" >&2
+          exit 2
+        fi
+        agents_list
+        ;;
+      *)
+        echo "Usage: pidocker agents sync [--delete] | agents list" >&2
         exit 2
         ;;
     esac

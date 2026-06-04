@@ -311,6 +311,89 @@ def test_pidocker_packages_add_rejects_unpinned_or_local_packages(tmp_path):
     assert "not a local path" in local_result.stderr
 
 
+def test_pidocker_agents_sync_streams_host_agents_without_mounting_host_dir(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    docker_stdin = tmp_path / "docker-stdin.tar"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [ \"${1:-}\" = run ]; then cat > \"$PIDOCKER_DOCKER_STDIN\"; fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    host_agents = tmp_path / "agents"
+    host_agents.mkdir()
+    (host_agents / "reviewer.md").write_text("---\nname: reviewer\n---\nReview.\n")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_DOCKER_STDIN"] = str(docker_stdin)
+    env["PIDOCKER_HOST_AGENTS_DIR"] = str(host_agents)
+
+    result = subprocess.run(
+        [str(PIDOCKER), "agents", "sync", "--delete"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Synced 1 host agent" in result.stdout
+    docker_calls = docker_log.read_text().splitlines()
+    docker_run_call = next(call for call in docker_calls if call.startswith("run "))
+    assert "PIDOCKER_AGENTS_DELETE=1" in docker_run_call
+    assert "pidocker-home" in docker_run_call
+    assert str(host_agents) not in docker_run_call
+
+    import tarfile
+
+    with tarfile.open(docker_stdin) as archive:
+        names = archive.getnames()
+    assert "./reviewer.md" in names
+
+
+def test_pidocker_agents_list_shows_host_and_container_agents(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [ \"${1:-}\" = run ]; then printf '%s\\n' '  container-reviewer.md'; fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    host_agents = tmp_path / "agents"
+    host_agents.mkdir()
+    (host_agents / "host-reviewer.md").write_text("---\nname: host-reviewer\n---\n")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_HOST_AGENTS_DIR"] = str(host_agents)
+
+    result = subprocess.run(
+        [str(PIDOCKER), "agents", "list"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Host agents" in result.stdout
+    assert "  host-reviewer.md" in result.stdout
+    assert "Pidocker agents" in result.stdout
+    assert "  container-reviewer.md" in result.stdout
+
+
 def test_pidocker_passes_host_packages_without_mounting_host_config(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"
