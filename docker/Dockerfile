@@ -33,6 +33,7 @@ RUN apt-get update \
     && mkdir -p /home/pi/.npm-global /home/pi/.pidocker/secrets /home/pi/.pi/agent /workspace/repos \
     && NPM_CONFIG_PREFIX=/home/pi/.npm-global npm install -g "pi-web-access@${PI_WEB_ACCESS_VERSION}" \
     && printf '%s\n' '{"packages":["npm:pi-web-access"]}' > /home/pi/.pi/agent/settings.json \
+    && printf '%s\n' '{"tui.input.newLine":["shift+enter","ctrl+j"]}' > /home/pi/.pi/agent/keybindings.json \
     && printf '%s\n' \
       'export NPM_CONFIG_PREFIX=/home/pi/.npm-global' \
       'case ":${PATH}:" in *:/home/pi/.npm-global/bin:*) ;; *) export PATH="/home/pi/.npm-global/bin:${PATH}" ;; esac' \

@@ -88,6 +88,20 @@ Inside Pi, log in with:
 
 Pi authentication files and `/resume` sessions are stored in `pidocker-home`, so they survive container restarts.
 
+## Multi-line input
+
+Pi uses the terminal's modified Enter support for multi-line input. `Shift+Enter` should insert a new line, while `Enter` submits.
+
+`pidocker` seeds `/home/pi/.pi/agent/keybindings.json` so `Ctrl+J` is also accepted as a new-line fallback:
+
+```json
+{
+  "tui.input.newLine": ["shift+enter", "ctrl+j"]
+}
+```
+
+If `Shift+Enter` still submits, the host terminal is probably sending a plain `Enter` to Docker. Configure the host terminal to send `\u001b[13;2u` for `Shift+Enter` (for example in VS Code/Windows Terminal), or use `Ctrl+J`/backslash + `Enter` as a fallback.
+
 ## Azure CLI context
 
 The image includes the Azure CLI (`az`) so Pi can inspect and manage Azure resources from inside the container.

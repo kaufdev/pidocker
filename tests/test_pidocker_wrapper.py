@@ -423,6 +423,17 @@ def test_pidocker_persists_pi_web_access_package_in_home_volume_before_running_p
     assert script.index("npm:pi-web-access") < script.index("exec pi")
 
 
+def test_pidocker_configures_multiline_keybinding_before_running_pi():
+    script = PIDOCKER.read_text()
+    dockerfile = (REPO_ROOT / "docker" / "Dockerfile").read_text()
+
+    assert "/home/pi/.pi/agent/keybindings.json" in script
+    assert "tui.input.newLine" in script
+    assert "ctrl+j" in script
+    assert script.index("tui.input.newLine") < script.index("exec pi")
+    assert '"tui.input.newLine":["shift+enter","ctrl+j"]' in dockerfile
+
+
 def test_pidocker_mounts_named_home_and_workspace_volumes(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"
