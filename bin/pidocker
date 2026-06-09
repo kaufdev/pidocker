@@ -11,6 +11,7 @@ PIDOCKER_WORKSPACE_VOLUME="${PIDOCKER_VOLUME_PREFIX}-workspace"
 PIDOCKER_CONFIG_DIR="${PIDOCKER_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/pidocker}"
 PIDOCKER_PACKAGES_FILE="${PIDOCKER_PACKAGES_FILE:-${PIDOCKER_CONFIG_DIR}/packages.json}"
 PIDOCKER_HOST_AGENTS_DIR="${PIDOCKER_HOST_AGENTS_DIR:-${HOME}/.pi/agent/agents}"
+PIDOCKER_HOST_SKILLS_DIR="${PIDOCKER_HOST_SKILLS_DIR:-${HOME}/.pi/agent/skills}"
 
 show_help() {
   cat <<'HELP'
@@ -26,6 +27,8 @@ Usage:
   pidocker packages list
   pidocker agents sync [--delete]
   pidocker agents list
+  pidocker skills sync [--delete]
+  pidocker skills list
   pidocker completion bash|zsh
 
 Commands:
@@ -36,6 +39,8 @@ Commands:
   packages list            List packages from host config
   agents sync [--delete]   Sync host Pi agents into pidocker-home
   agents list              List host and pidocker global agents
+  skills sync [--delete]   Sync host Pi skills into pidocker-home
+  skills list              List host and pidocker global skills
   completion bash|zsh      Print shell completion for repository names
 
 Arguments:
@@ -360,6 +365,7 @@ agents_sync() {
   COPYFILE_DISABLE=1 tar --no-xattrs -C "${tmp_dir}" -cf - . | docker run \
     --rm \
     -i \
+    --user root \
     --env "PIDOCKER_AGENTS_DELETE=${delete_mode}" \
     --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
     "${PIDOCKER_IMAGE}" \
@@ -371,10 +377,88 @@ agents_sync() {
         find "${agents_dir}" -maxdepth 1 -type f -name "*.md" -delete
       fi
       tar -C "${agents_dir}" -xf -
+      chown -R pi:pi "${agents_dir}"
     '
 
   rm -rf "${tmp_dir}"
   echo "Synced ${synced_count} host agent(s) from ${PIDOCKER_HOST_AGENTS_DIR} to pidocker-home."
+}
+
+list_host_skills() {
+  if [[ ! -d "${PIDOCKER_HOST_SKILLS_DIR}" ]]; then
+    return 0
+  fi
+  {
+    find "${PIDOCKER_HOST_SKILLS_DIR}" -maxdepth 1 -type f -name '*.md' -print 2>/dev/null
+    find "${PIDOCKER_HOST_SKILLS_DIR}" -type f -name 'SKILL.md' -print 2>/dev/null
+  } | sed "s#^${PIDOCKER_HOST_SKILLS_DIR%/}/##" | sort -u
+}
+
+skills_list() {
+  ensure_docker_available
+  ensure_image_exists
+
+  echo "Host skills (${PIDOCKER_HOST_SKILLS_DIR}):"
+  if ! list_host_skills | sed 's/^/  /'; then
+    true
+  fi
+
+  echo "Pidocker skills (/home/pi/.pi/agent/skills):"
+  docker run \
+    --rm \
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+    "${PIDOCKER_IMAGE}" \
+    bash -lc '
+      skills_dir=/home/pi/.pi/agent/skills
+      if [ ! -d "${skills_dir}" ]; then exit 0; fi
+      {
+        find "${skills_dir}" -maxdepth 1 -type f -name "*.md" -print 2>/dev/null
+        find "${skills_dir}" -type f -name "SKILL.md" -print 2>/dev/null
+      } | sed "s#^${skills_dir%/}/##" | sort -u | sed "s/^/  /"
+    '
+}
+
+skills_sync() {
+  local delete_mode=0
+  local tmp_dir synced_count=0
+  if [[ "${1:-}" = "--delete" ]]; then
+    delete_mode=1
+    shift
+  fi
+  if [[ $# -ne 0 ]]; then
+    echo "Usage: pidocker skills sync [--delete]" >&2
+    exit 2
+  fi
+
+  ensure_docker_available
+  ensure_image_exists
+
+  tmp_dir="$(mktemp -d)"
+  if [[ -d "${PIDOCKER_HOST_SKILLS_DIR}" ]]; then
+    COPYFILE_DISABLE=1 tar --no-xattrs -C "${PIDOCKER_HOST_SKILLS_DIR}" -cf - . | tar -C "${tmp_dir}" -xf -
+    synced_count="$(list_host_skills | sed '/^$/d' | wc -l | tr -d ' ')"
+  fi
+
+  COPYFILE_DISABLE=1 tar --no-xattrs -C "${tmp_dir}" -cf - . | docker run \
+    --rm \
+    -i \
+    --user root \
+    --env "PIDOCKER_SKILLS_DELETE=${delete_mode}" \
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+    "${PIDOCKER_IMAGE}" \
+    bash -lc '
+      set -euo pipefail
+      skills_dir=/home/pi/.pi/agent/skills
+      mkdir -p "${skills_dir}"
+      if [ "${PIDOCKER_SKILLS_DELETE:-0}" = "1" ]; then
+        find "${skills_dir}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      fi
+      tar -C "${skills_dir}" -xf -
+      chown -R pi:pi "${skills_dir}"
+    '
+
+  rm -rf "${tmp_dir}"
+  echo "Synced ${synced_count} host skill(s) from ${PIDOCKER_HOST_SKILLS_DIR} to pidocker-home."
 }
 
 run_container() {
@@ -517,7 +601,7 @@ show_completion() {
 _pidocker_complete() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    local commands="setupssh secrets packages agents completion --help -h"
+    local commands="setupssh secrets packages agents skills completion --help -h"
     local repos
     repos=$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null || true)
     COMPREPLY=( $(compgen -W "${commands} ${repos}" -- "${cur}") )
@@ -531,7 +615,7 @@ BASH
 #compdef pidocker
 _pidocker() {
   local -a repos commands
-  commands=(setupssh secrets packages agents completion --help -h)
+  commands=(setupssh secrets packages agents skills completion --help -h)
   repos=(${(f)"$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null)"})
   _describe 'pidocker arguments' commands repos
 }
@@ -671,6 +755,32 @@ case "${1:-}" in
         ;;
       *)
         echo "Usage: pidocker agents sync [--delete] | agents list" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  skills)
+    case "${2:-}" in
+      sync)
+        if [[ -n "${4:-}" ]]; then
+          echo "Usage: pidocker skills sync [--delete]" >&2
+          exit 2
+        fi
+        if [[ -n "${3:-}" ]]; then
+          skills_sync "${3}"
+        else
+          skills_sync
+        fi
+        ;;
+      list)
+        if [[ -n "${3:-}" ]]; then
+          echo "Usage: pidocker skills list" >&2
+          exit 2
+        fi
+        skills_list
+        ;;
+      *)
+        echo "Usage: pidocker skills sync [--delete] | skills list" >&2
         exit 2
         ;;
     esac

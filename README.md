@@ -183,7 +183,7 @@ The host package list is stored at `~/.config/pidocker/packages.json` unless `XD
 
 Package specs must be pinned npm packages such as `npm:@client/pi-tools@1.2.3` or pinned remote git packages such as `git:github.com/client/pi-tools@v1.2.3`. Local paths are rejected so pidocker does not need host mounts. Pi packages can execute code inside the container, so install only packages you trust.
 
-## Pi agents
+## Pi agents and skills
 
 Sync global Pi agent definitions from the host into `pidocker-home`:
 
@@ -194,10 +194,20 @@ pidocker agents list
 
 By default this copies host files from `~/.pi/agent/agents/*.md` into `/home/pi/.pi/agent/agents/*.md` inside the `pidocker-home` volume. Override the host directory with `PIDOCKER_HOST_AGENTS_DIR` if needed.
 
-Sync only copies and overwrites matching files. To mirror the host directory and remove pidocker agents that no longer exist on the host:
+Sync global Pi skills from the host into `pidocker-home`:
+
+```bash
+pidocker skills sync
+pidocker skills list
+```
+
+By default this copies host skills from `~/.pi/agent/skills/` into `/home/pi/.pi/agent/skills/` inside the `pidocker-home` volume. Directory skills such as `two-pass-review/SKILL.md` are copied with their helper files. Override the host directory with `PIDOCKER_HOST_SKILLS_DIR` if needed.
+
+Sync only copies and overwrites matching files. To mirror the host directory and remove pidocker entries that no longer exist on the host:
 
 ```bash
 pidocker agents sync --delete
+pidocker skills sync --delete
 ```
 
 This is a one-shot tar stream into the Docker volume, not a persistent host mount.

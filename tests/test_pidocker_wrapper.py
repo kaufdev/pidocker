@@ -394,6 +394,98 @@ def test_pidocker_agents_list_shows_host_and_container_agents(tmp_path):
     assert "  container-reviewer.md" in result.stdout
 
 
+def test_pidocker_skills_sync_streams_host_skills_without_mounting_host_dir(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    docker_stdin = tmp_path / "docker-stdin.tar"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [ \"${1:-}\" = run ]; then cat > \"$PIDOCKER_DOCKER_STDIN\"; fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    host_skills = tmp_path / "skills"
+    skill_dir = host_skills / "two-pass-review"
+    script_dir = skill_dir / "scripts"
+    script_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: two-pass-review\ndescription: Test skill.\n---\n"
+    )
+    (script_dir / "helper.sh").write_text("#!/bin/sh\n")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_DOCKER_STDIN"] = str(docker_stdin)
+    env["PIDOCKER_HOST_SKILLS_DIR"] = str(host_skills)
+
+    result = subprocess.run(
+        [str(PIDOCKER), "skills", "sync", "--delete"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Synced 1 host skill" in result.stdout
+    docker_calls = docker_log.read_text().splitlines()
+    docker_run_call = next(call for call in docker_calls if call.startswith("run "))
+    assert "PIDOCKER_SKILLS_DELETE=1" in docker_run_call
+    assert "pidocker-home" in docker_run_call
+    assert str(host_skills) not in docker_run_call
+
+    import tarfile
+
+    with tarfile.open(docker_stdin) as archive:
+        names = archive.getnames()
+    assert "./two-pass-review/SKILL.md" in names
+    assert "./two-pass-review/scripts/helper.sh" in names
+
+
+def test_pidocker_skills_list_shows_host_and_container_skills(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [ \"${1:-}\" = run ]; then printf '%s\\n' '  container-skill/SKILL.md'; fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    host_skills = tmp_path / "skills"
+    skill_dir = host_skills / "host-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: host-skill\ndescription: Test skill.\n---\n"
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_HOST_SKILLS_DIR"] = str(host_skills)
+
+    result = subprocess.run(
+        [str(PIDOCKER), "skills", "list"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Host skills" in result.stdout
+    assert "  host-skill/SKILL.md" in result.stdout
+    assert "Pidocker skills" in result.stdout
+    assert "  container-skill/SKILL.md" in result.stdout
+
+
 def test_pidocker_passes_host_packages_without_mounting_host_config(tmp_path):
     docker_log = tmp_path / "docker.log"
     fake_bin = tmp_path / "bin"
