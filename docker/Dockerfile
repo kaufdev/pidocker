@@ -20,8 +20,16 @@ RUN apt-get update \
       "Architectures: $(dpkg --print-architecture)" \
       'Signed-by: /etc/apt/keyrings/microsoft.gpg' \
       > /etc/apt/sources.list.d/azure-cli.sources \
+    && printf '%s\n' \
+      'Types: deb' \
+      'URIs: https://packages.microsoft.com/repos/microsoft-debian-bookworm-prod/' \
+      'Suites: bookworm' \
+      'Components: main' \
+      "Architectures: $(dpkg --print-architecture)" \
+      'Signed-by: /etc/apt/keyrings/microsoft.gpg' \
+      > /etc/apt/sources.list.d/microsoft-prod.sources \
     && apt-get update \
-    && apt-get install -y --no-install-recommends azure-cli \
+    && apt-get install -y --no-install-recommends azure-cli azure-functions-core-tools-4 \
     && npm install -g n \
     && n lts \
     && npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}" \
