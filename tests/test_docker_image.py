@@ -159,10 +159,10 @@ def test_dockerfile_uses_python_313_base_image():
 def test_dockerfile_installs_pinned_pi_packages():
     dockerfile = DOCKERFILE.read_text()
 
-    assert "ARG PI_CODING_AGENT_VERSION=0.73.1" in dockerfile
+    assert "ARG PI_CODING_AGENT_VERSION=0.80.2" in dockerfile
     assert "ARG PI_WEB_ACCESS_VERSION=0.10.7" in dockerfile
     assert "ARG PI_FIXED_EDITOR_VERSION=0.2.3" in dockerfile
-    assert "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}" in dockerfile
+    assert "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" in dockerfile
     assert "pi-web-access@${PI_WEB_ACCESS_VERSION}" in dockerfile
     assert "@tifan/pi-fixed-editor@${PI_FIXED_EDITOR_VERSION}" in dockerfile
 
@@ -246,8 +246,8 @@ def test_docker_image_contains_builtin_pi_packages():
             "-lc",
             "set -euo pipefail && "
             "npm list -g --depth=0 pi-web-access @tifan/pi-fixed-editor >/dev/null && "
-            "node -e 'const pkg=require(\"/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/package.json\"); "
-            "if (pkg.version !== \"0.73.1\") process.exit(1)' && "
+            "node -e 'const pkg=require(\"/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/package.json\"); "
+            "if (pkg.version !== \"0.80.2\") process.exit(1)' && "
             "node -e 'const pkg=require(\"/home/pi/.npm-global/lib/node_modules/pi-web-access/package.json\"); "
             "if (pkg.version !== \"0.10.7\") process.exit(1); "
             "if (!pkg.pi || !pkg.pi.extensions || !pkg.pi.extensions.includes(\"./index.ts\")) process.exit(1)' && "

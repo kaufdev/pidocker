@@ -1,6 +1,6 @@
 FROM python:3.13-slim-bookworm
 
-ARG PI_CODING_AGENT_VERSION=0.73.1
+ARG PI_CODING_AGENT_VERSION=0.80.2
 ARG PI_WEB_ACCESS_VERSION=0.10.7
 ARG PI_FIXED_EDITOR_VERSION=0.2.3
 
@@ -33,7 +33,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends azure-cli azure-functions-core-tools-4 \
     && npm install -g n \
     && n lts \
-    && npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}" \
+    && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" \
     && python -m pip install --no-cache-dir pytest \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
