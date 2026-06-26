@@ -589,13 +589,15 @@ def test_pidocker_loads_pidocker_secrets_before_running_pi():
     assert "exec pi" in script
 
 
-def test_pidocker_persists_pi_web_access_package_in_home_volume_before_running_pi():
+def test_pidocker_persists_builtin_packages_in_home_volume_before_running_pi():
     script = PIDOCKER.read_text()
 
     assert "/home/pi/.pi/agent/settings.json" in script
     assert "npm:pi-web-access" in script
+    assert "npm:@tifan/pi-fixed-editor" in script
     assert "settings.packages.push" in script
     assert script.index("npm:pi-web-access") < script.index("exec pi")
+    assert script.index("npm:@tifan/pi-fixed-editor") < script.index("exec pi")
 
 
 def test_pidocker_configures_multiline_keybinding_before_running_pi():

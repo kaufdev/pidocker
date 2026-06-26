@@ -509,7 +509,7 @@ const hostPackages = Buffer.from(process.env.PIDOCKER_PACKAGE_SPECS_B64 || "", "
   .toString("utf8")
   .split(/\n/)
   .filter(Boolean);
-for (const pkg of ["npm:pi-web-access", ...hostPackages]) {
+for (const pkg of ["npm:pi-web-access", "npm:@tifan/pi-fixed-editor", ...hostPackages]) {
   if (!settings.packages.includes(pkg)) {
     settings.packages.push(pkg);
   }

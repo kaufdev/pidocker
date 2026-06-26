@@ -1,6 +1,6 @@
 # pidocker
 
-`pidocker` runs Pi inside an isolated Docker container. The image includes Python 3.13, Pi 0.73.1, and pi-web-access 0.10.7. The container uses only the named volumes `pidocker-home` and `pidocker-workspace`; it does not mount private host directories or the Docker socket.
+`pidocker` runs Pi inside an isolated Docker container. The image includes Python 3.13, Pi 0.73.1, pi-web-access 0.10.7, and @tifan/pi-fixed-editor 0.2.3. The container uses only the named volumes `pidocker-home` and `pidocker-workspace`; it does not mount private host directories or the Docker socket.
 
 ## Requirements
 
@@ -179,7 +179,7 @@ Install the subagents extension package:
 pidocker packages add git:github.com/kaufdev/pi-subagents@v0.1.2
 ```
 
-The host package list is stored at `~/.config/pidocker/packages.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_PACKAGES_FILE` is set. On startup, `pidocker` validates this file, passes only the package specs into the container, and merges them into `/home/pi/.pi/agent/settings.json` together with the built-in `npm:pi-web-access` package.
+The host package list is stored at `~/.config/pidocker/packages.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_PACKAGES_FILE` is set. On startup, `pidocker` validates this file, passes only the package specs into the container, and merges them into `/home/pi/.pi/agent/settings.json` together with the built-in `npm:pi-web-access` and `npm:@tifan/pi-fixed-editor` packages.
 
 Package specs must be pinned npm packages such as `npm:@client/pi-tools@1.2.3` or pinned remote git packages such as `git:github.com/client/pi-tools@v1.2.3`. Local paths are rejected so pidocker does not need host mounts. Pi packages can execute code inside the container, so install only packages you trust.
 

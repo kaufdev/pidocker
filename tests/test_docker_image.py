@@ -161,8 +161,10 @@ def test_dockerfile_installs_pinned_pi_packages():
 
     assert "ARG PI_CODING_AGENT_VERSION=0.73.1" in dockerfile
     assert "ARG PI_WEB_ACCESS_VERSION=0.10.7" in dockerfile
+    assert "ARG PI_FIXED_EDITOR_VERSION=0.2.3" in dockerfile
     assert "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}" in dockerfile
     assert "pi-web-access@${PI_WEB_ACCESS_VERSION}" in dockerfile
+    assert "@tifan/pi-fixed-editor@${PI_FIXED_EDITOR_VERSION}" in dockerfile
 
 
 def test_docker_image_contains_azure_cli_command():
@@ -227,7 +229,7 @@ def test_docker_image_contains_python_and_pytest():
     assert stdout_lines[5].startswith("pytest ")
 
 
-def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
+def test_docker_image_contains_builtin_pi_packages():
     subprocess.run(
         ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
         cwd=REPO_ROOT,
@@ -243,13 +245,17 @@ def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
             "bash",
             "-lc",
             "set -euo pipefail && "
-            "npm list -g --depth=0 pi-web-access >/dev/null && "
+            "npm list -g --depth=0 pi-web-access @tifan/pi-fixed-editor >/dev/null && "
             "node -e 'const pkg=require(\"/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/package.json\"); "
             "if (pkg.version !== \"0.73.1\") process.exit(1)' && "
             "node -e 'const pkg=require(\"/home/pi/.npm-global/lib/node_modules/pi-web-access/package.json\"); "
             "if (pkg.version !== \"0.10.7\") process.exit(1); "
             "if (!pkg.pi || !pkg.pi.extensions || !pkg.pi.extensions.includes(\"./index.ts\")) process.exit(1)' && "
+            "node -e 'const pkg=require(\"/home/pi/.npm-global/lib/node_modules/@tifan/pi-fixed-editor/package.json\"); "
+            "if (pkg.version !== \"0.2.3\") process.exit(1); "
+            "if (!pkg.pi || !pkg.pi.extensions || !pkg.pi.extensions.includes(\"./src/index.ts\")) process.exit(1)' && "
             "grep -q 'npm:pi-web-access' /home/pi/.pi/agent/settings.json && "
+            "grep -q 'npm:@tifan/pi-fixed-editor' /home/pi/.pi/agent/settings.json && "
             "test -f /home/pi/.npm-global/lib/node_modules/pi-web-access/skills/librarian/SKILL.md && "
             "grep -q 'web_search' /home/pi/.npm-global/lib/node_modules/pi-web-access/index.ts && "
             "grep -q 'code_search' /home/pi/.npm-global/lib/node_modules/pi-web-access/index.ts && "
@@ -265,7 +271,7 @@ def test_docker_image_contains_pi_web_access_tooling_and_librarian_skill():
     assert result.returncode == 0
 
 
-def test_pi_web_access_package_setting_persists_in_home_volume():
+def test_builtin_package_settings_persist_in_home_volume():
     volume_prefix = f"pidocker-test-{uuid.uuid4().hex}"
     home_volume = f"{volume_prefix}-home"
     workspace_volume = f"{volume_prefix}-workspace"
@@ -321,7 +327,9 @@ def test_pi_web_access_package_setting_persists_in_home_volume():
                 TEST_IMAGE,
                 "bash",
                 "-lc",
-                "grep -q 'npm:pi-web-access' /home/pi/.pi/agent/settings.json && cat /home/pi/.pi/agent/settings.json",
+                "grep -q 'npm:pi-web-access' /home/pi/.pi/agent/settings.json && "
+                "grep -q 'npm:@tifan/pi-fixed-editor' /home/pi/.pi/agent/settings.json && "
+                "cat /home/pi/.pi/agent/settings.json",
             ],
             cwd=REPO_ROOT,
             text=True,
@@ -330,6 +338,7 @@ def test_pi_web_access_package_setting_persists_in_home_volume():
         )
 
         assert "npm:pi-web-access" in result.stdout
+        assert "npm:@tifan/pi-fixed-editor" in result.stdout
     finally:
         remove_docker_volumes(home_volume, workspace_volume)
 

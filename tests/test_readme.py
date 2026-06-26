@@ -15,6 +15,7 @@ REQUIRED_README_PHRASES = [
     "/var/run/docker.sock",
     "docker exec",
     "app=pidocker",
+    "@tifan/pi-fixed-editor",
 ]
 
 

@@ -2,6 +2,7 @@ FROM python:3.13-slim-bookworm
 
 ARG PI_CODING_AGENT_VERSION=0.73.1
 ARG PI_WEB_ACCESS_VERSION=0.10.7
+ARG PI_FIXED_EDITOR_VERSION=0.2.3
 
 COPY pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
 
@@ -39,8 +40,8 @@ RUN apt-get update \
     && chmod 755 /usr/local/bin/pidocker-ssh-setup \
     && useradd --create-home --home-dir /home/pi --shell /bin/bash pi \
     && mkdir -p /home/pi/.npm-global /home/pi/.pidocker/secrets /home/pi/.pi/agent /workspace/repos \
-    && NPM_CONFIG_PREFIX=/home/pi/.npm-global npm install -g "pi-web-access@${PI_WEB_ACCESS_VERSION}" \
-    && printf '%s\n' '{"packages":["npm:pi-web-access"]}' > /home/pi/.pi/agent/settings.json \
+    && NPM_CONFIG_PREFIX=/home/pi/.npm-global npm install -g "pi-web-access@${PI_WEB_ACCESS_VERSION}" "@tifan/pi-fixed-editor@${PI_FIXED_EDITOR_VERSION}" \
+    && printf '%s\n' '{"packages":["npm:pi-web-access","npm:@tifan/pi-fixed-editor"]}' > /home/pi/.pi/agent/settings.json \
     && printf '%s\n' '{"tui.input.newLine":["shift+enter","ctrl+j"]}' > /home/pi/.pi/agent/keybindings.json \
     && printf '%s\n' \
       'export NPM_CONFIG_PREFIX=/home/pi/.npm-global' \
