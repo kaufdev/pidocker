@@ -10,6 +10,9 @@ PIDOCKER_HOME_VOLUME="${PIDOCKER_VOLUME_PREFIX}-home"
 PIDOCKER_WORKSPACE_VOLUME="${PIDOCKER_VOLUME_PREFIX}-workspace"
 PIDOCKER_CONFIG_DIR="${PIDOCKER_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/pidocker}"
 PIDOCKER_PACKAGES_FILE="${PIDOCKER_PACKAGES_FILE:-${PIDOCKER_CONFIG_DIR}/packages.json}"
+PIDOCKER_TOOLS_FILE="${PIDOCKER_TOOLS_FILE:-${PIDOCKER_CONFIG_DIR}/tools.json}"
+PIDOCKER_TOOLS_IMAGE="${PIDOCKER_TOOLS_IMAGE:-${PIDOCKER_IMAGE}-tools}"
+PIDOCKER_TOOLS_LABEL="org.pidocker.tools.sha"
 PIDOCKER_HOST_AGENTS_DIR="${PIDOCKER_HOST_AGENTS_DIR:-${HOME}/.pi/agent/agents}"
 PIDOCKER_HOST_SKILLS_DIR="${PIDOCKER_HOST_SKILLS_DIR:-${HOME}/.pi/agent/skills}"
 
@@ -25,6 +28,10 @@ Usage:
   pidocker packages add PACKAGE
   pidocker packages remove PACKAGE
   pidocker packages list
+  pidocker tools add apt:PACKAGE
+  pidocker tools remove apt:PACKAGE
+  pidocker tools list
+  pidocker tools build
   pidocker agents sync [--delete]
   pidocker agents list
   pidocker skills sync [--delete]
@@ -37,6 +44,10 @@ Commands:
   packages add PACKAGE     Persist a pinned Pi package in host config
   packages remove PACKAGE  Remove a package from host config
   packages list            List packages from host config
+  tools add apt:PACKAGE    Persist an apt system tool in host config
+  tools remove apt:PACKAGE Remove a system tool from host config
+  tools list               List system tools from host config
+  tools build              Build the configured tools image now
   agents sync [--delete]   Sync host Pi agents into pidocker-home
   agents list              List host and pidocker global agents
   skills sync [--delete]   Sync host Pi skills into pidocker-home
@@ -313,6 +324,258 @@ packages_list() {
   fi
 }
 
+validate_tool_spec() {
+  local spec="${1:-}"
+
+  if [[ -z "${spec}" || "${spec}" == *[[:space:]]* || "${spec}" == *\"* || "${spec}" == *\\* ]]; then
+    echo "pidocker: tool must be a single apt: spec without spaces, quotes, or backslashes" >&2
+    return 2
+  fi
+
+  case "${spec}" in
+    apt:*)
+      if [[ ! "${spec}" =~ ^apt:[a-z0-9][a-z0-9.+-]*$ ]]; then
+        echo "pidocker: apt tools must look like apt:binutils" >&2
+        return 2
+      fi
+      ;;
+    *)
+      echo "pidocker: tool must start with apt:" >&2
+      return 2
+      ;;
+  esac
+}
+
+read_host_tools() {
+  if [[ ! -f "${PIDOCKER_TOOLS_FILE}" ]]; then
+    return 0
+  fi
+
+  awk '
+    /"tools"[[:space:]]*:[[:space:]]*\[/ {
+      if ($0 ~ /\[[[:space:]]*\]/) next
+      in_tools = 1
+      next
+    }
+    in_tools && /\]/ {
+      in_tools = 0
+      next
+    }
+    in_tools {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      sub(/[[:space:]]*,?[[:space:]]*$/, "", line)
+      if (line == "") next
+      if (line !~ /^"[^"\\]*"$/) {
+        print "pidocker: invalid tools config format: " FILENAME > "/dev/stderr"
+        exit 2
+      }
+      sub(/^"/, "", line)
+      sub(/"$/, "", line)
+      print line
+    }
+  ' "${PIDOCKER_TOOLS_FILE}"
+}
+
+read_validated_host_tools() {
+  local spec tmp_file
+  tmp_file="$(mktemp)"
+  if ! read_host_tools > "${tmp_file}"; then
+    rm -f "${tmp_file}"
+    return 2
+  fi
+  while IFS= read -r spec; do
+    [[ -z "${spec}" ]] && continue
+    validate_tool_spec "${spec}"
+    printf '%s\n' "${spec}"
+  done < "${tmp_file}"
+  rm -f "${tmp_file}"
+}
+
+write_tools_from_file() {
+  local source_file="${1}"
+  local tmp_file tools_file_dir
+  local first=1
+  local spec
+  tools_file_dir="$(dirname "${PIDOCKER_TOOLS_FILE}")"
+  mkdir -p "${tools_file_dir}"
+  tmp_file="$(mktemp "${tools_file_dir}/tools.json.XXXXXX")"
+  {
+    printf '%s\n' '{'
+    printf '%s\n' '  "tools": ['
+    while IFS= read -r spec; do
+      [[ -z "${spec}" ]] && continue
+      if [[ "${first}" -eq 0 ]]; then
+        printf '%s\n' ','
+      fi
+      printf '    "%s"' "${spec}"
+      first=0
+    done < "${source_file}"
+    if [[ "${first}" -eq 0 ]]; then
+      printf '%s\n' ''
+    fi
+    printf '%s\n' '  ]'
+    printf '%s\n' '}'
+  } > "${tmp_file}"
+  mv "${tmp_file}" "${PIDOCKER_TOOLS_FILE}"
+}
+
+tools_add() {
+  local spec="${1:-}"
+  local existing tmp_file existing_file found=0
+  if [[ -z "${spec}" || $# -ne 1 ]]; then
+    echo "Usage: pidocker tools add apt:PACKAGE" >&2
+    exit 2
+  fi
+  validate_tool_spec "${spec}"
+  tmp_file="$(mktemp)"
+  existing_file="$(mktemp)"
+  read_validated_host_tools > "${existing_file}"
+  while IFS= read -r existing; do
+    [[ -z "${existing}" ]] && continue
+    if [[ "${existing}" = "${spec}" ]]; then
+      found=1
+    fi
+    printf '%s\n' "${existing}" >> "${tmp_file}"
+  done < "${existing_file}"
+  if [[ "${found}" -eq 0 ]]; then
+    printf '%s\n' "${spec}" >> "${tmp_file}"
+  fi
+  write_tools_from_file "${tmp_file}"
+  rm -f "${tmp_file}" "${existing_file}"
+  echo "Configured tool ${spec} in ${PIDOCKER_TOOLS_FILE}. It will be installed into ${PIDOCKER_TOOLS_IMAGE} on the next pidocker run."
+}
+
+tools_remove() {
+  local spec="${1:-}"
+  local existing tmp_file existing_file removed=0
+  if [[ -z "${spec}" || $# -ne 1 ]]; then
+    echo "Usage: pidocker tools remove apt:PACKAGE" >&2
+    exit 2
+  fi
+  validate_tool_spec "${spec}"
+  tmp_file="$(mktemp)"
+  existing_file="$(mktemp)"
+  read_validated_host_tools > "${existing_file}"
+  while IFS= read -r existing; do
+    [[ -z "${existing}" ]] && continue
+    if [[ "${existing}" = "${spec}" ]]; then
+      removed=1
+    else
+      printf '%s\n' "${existing}" >> "${tmp_file}"
+    fi
+  done < "${existing_file}"
+  write_tools_from_file "${tmp_file}"
+  rm -f "${tmp_file}" "${existing_file}"
+  if [[ "${removed}" -eq 1 ]]; then
+    echo "Removed tool ${spec} from ${PIDOCKER_TOOLS_FILE}."
+  else
+    echo "Tool ${spec} was not configured."
+  fi
+}
+
+tools_list() {
+  local found=0
+  local spec existing_file
+  existing_file="$(mktemp)"
+  read_validated_host_tools > "${existing_file}"
+  while IFS= read -r spec; do
+    [[ -z "${spec}" ]] && continue
+    printf '%s\n' "${spec}"
+    found=1
+  done < "${existing_file}"
+  rm -f "${existing_file}"
+  if [[ "${found}" -eq 0 ]]; then
+    echo "No host tools configured."
+  fi
+}
+
+host_tools_configured() {
+  local tmp_file result=1
+  tmp_file="$(mktemp)"
+  if ! read_validated_host_tools > "${tmp_file}"; then
+    rm -f "${tmp_file}"
+    return 2
+  fi
+  if [[ -s "${tmp_file}" ]]; then
+    result=0
+  fi
+  rm -f "${tmp_file}"
+  return "${result}"
+}
+
+tools_hash_from_file() {
+  local source_file="${1}"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${source_file}" | awk '{print $1}'
+  else
+    sha256sum "${source_file}" | awk '{print $1}'
+  fi
+}
+
+write_tools_dockerfile() {
+  local source_file="${1}"
+  local tools_hash="${2}"
+  local spec package
+
+  printf 'FROM %s\n\n' "${PIDOCKER_IMAGE}"
+  printf 'LABEL %s="%s"\n\n' "${PIDOCKER_TOOLS_LABEL}" "${tools_hash}"
+  printf '%s\n' 'USER root'
+  printf '%s\n' 'RUN apt-get update \'
+  printf '%s' '    && apt-get install -y --no-install-recommends'
+  while IFS= read -r spec; do
+    [[ -z "${spec}" ]] && continue
+    package="${spec#apt:}"
+    printf ' \\\n      %s' "${package}"
+  done < "${source_file}"
+  printf '%s\n' ' \'
+  printf '%s\n' '    && apt-get clean \'
+  printf '%s\n' '    && rm -rf /var/lib/apt/lists/*'
+  printf '%s\n' 'USER pi'
+}
+
+ensure_user_tools_image() {
+  local tools_file tools_hash current_hash inspect_format
+  tools_file="$(mktemp)"
+  if ! read_validated_host_tools > "${tools_file}"; then
+    rm -f "${tools_file}"
+    return 2
+  fi
+  if [[ ! -s "${tools_file}" ]]; then
+    rm -f "${tools_file}"
+    ensure_image_exists
+    return 0
+  fi
+
+  ensure_image_exists
+  tools_hash="$(tools_hash_from_file "${tools_file}")"
+  inspect_format="{{ index .Config.Labels \"${PIDOCKER_TOOLS_LABEL}\" }}"
+  current_hash="$(docker image inspect "${PIDOCKER_TOOLS_IMAGE}" --format "${inspect_format}" 2>/dev/null || true)"
+  if [[ "${current_hash}" = "${tools_hash}" ]]; then
+    rm -f "${tools_file}"
+    return 0
+  fi
+
+  echo "pidocker: building tools image ${PIDOCKER_TOOLS_IMAGE} from ${PIDOCKER_IMAGE}" >&2
+  write_tools_dockerfile "${tools_file}" "${tools_hash}" | docker build -t "${PIDOCKER_TOOLS_IMAGE}" -
+  rm -f "${tools_file}"
+}
+
+tools_build() {
+  local tools_status
+  if host_tools_configured; then
+    ensure_docker_available
+    ensure_user_tools_image
+    echo "Built tools image ${PIDOCKER_TOOLS_IMAGE}."
+    return 0
+  fi
+  tools_status=$?
+  if [[ "${tools_status}" -eq 2 ]]; then
+    return 2
+  fi
+  echo "No host tools configured."
+}
+
 list_host_agents() {
   if [[ ! -d "${PIDOCKER_HOST_AGENTS_DIR}" ]]; then
     return 0
@@ -465,10 +728,20 @@ run_container() {
   local repo_arg="${1:-}"
 
   ensure_docker_available
-  ensure_image_exists
 
-  local package_specs_b64
+  local package_specs_b64 container_image tools_status
   package_specs_b64="$(host_package_specs_b64)"
+  container_image="${PIDOCKER_IMAGE}"
+  if host_tools_configured; then
+    ensure_user_tools_image
+    container_image="${PIDOCKER_TOOLS_IMAGE}"
+  else
+    tools_status=$?
+    if [[ "${tools_status}" -eq 2 ]]; then
+      exit 2
+    fi
+    ensure_image_exists
+  fi
 
   exec docker run \
     --rm \
@@ -478,7 +751,7 @@ run_container() {
     --env "PIDOCKER_PACKAGE_SPECS_B64=${package_specs_b64}" \
     --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
     --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
-    "${PIDOCKER_IMAGE}" \
+    "${container_image}" \
     bash -lc '
       set -euo pipefail
       settings_file=/home/pi/.pi/agent/settings.json
@@ -601,7 +874,7 @@ show_completion() {
 _pidocker_complete() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    local commands="setupssh secrets packages agents skills completion --help -h"
+    local commands="setupssh secrets packages tools agents skills completion --help -h"
     local repos
     repos=$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null || true)
     COMPREPLY=( $(compgen -W "${commands} ${repos}" -- "${cur}") )
@@ -615,7 +888,7 @@ BASH
 #compdef pidocker
 _pidocker() {
   local -a repos commands
-  commands=(setupssh secrets packages agents skills completion --help -h)
+  commands=(setupssh secrets packages tools agents skills completion --help -h)
   repos=(${(f)"$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null)"})
   _describe 'pidocker arguments' commands repos
 }
@@ -729,6 +1002,42 @@ case "${1:-}" in
         ;;
       *)
         echo "Usage: pidocker packages add|remove|list [PACKAGE]" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  tools)
+    case "${2:-}" in
+      add)
+        if [[ -z "${3:-}" || -n "${4:-}" ]]; then
+          echo "Usage: pidocker tools add apt:PACKAGE" >&2
+          exit 2
+        fi
+        tools_add "${3}"
+        ;;
+      remove)
+        if [[ -z "${3:-}" || -n "${4:-}" ]]; then
+          echo "Usage: pidocker tools remove apt:PACKAGE" >&2
+          exit 2
+        fi
+        tools_remove "${3}"
+        ;;
+      list)
+        if [[ -n "${3:-}" ]]; then
+          echo "Usage: pidocker tools list" >&2
+          exit 2
+        fi
+        tools_list
+        ;;
+      build)
+        if [[ -n "${3:-}" ]]; then
+          echo "Usage: pidocker tools build" >&2
+          exit 2
+        fi
+        tools_build
+        ;;
+      *)
+        echo "Usage: pidocker tools add|remove|list|build [apt:PACKAGE]" >&2
         exit 2
         ;;
     esac

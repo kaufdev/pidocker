@@ -183,6 +183,26 @@ The host package list is stored at `~/.config/pidocker/packages.json` unless `XD
 
 Package specs must be pinned npm packages such as `npm:@client/pi-tools@1.2.3` or pinned remote git packages such as `git:github.com/client/pi-tools@v1.2.3`. Local paths are rejected so pidocker does not need host mounts. Pi packages can execute code inside the container, so install only packages you trust.
 
+## System tools
+
+Persist extra Debian apt tools in host config without editing pidocker's Dockerfile:
+
+```bash
+pidocker tools add apt:binutils   # provides readelf
+pidocker tools list
+pidocker tools remove apt:binutils
+```
+
+The host tool list is stored at `~/.config/pidocker/tools.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_TOOLS_FILE` is set. When tools are configured, `pidocker` builds a derived image named `pidocker:local-tools` by default and runs Pi from that image. Override the image name with `PIDOCKER_TOOLS_IMAGE` if needed.
+
+Tool specs currently support Debian packages with the `apt:` prefix, for example `apt:binutils`, `apt:strace`, or `apt:file`. The package names are validated and embedded into a generated Dockerfile; no host directories are mounted into the container.
+
+Build the tools image immediately without starting Pi:
+
+```bash
+pidocker tools build
+```
+
 ## Pi agents and skills
 
 Sync global Pi agent definitions from the host into `pidocker-home`:

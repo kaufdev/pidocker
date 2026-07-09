@@ -311,6 +311,183 @@ def test_pidocker_packages_add_rejects_unpinned_or_local_packages(tmp_path):
     assert "not a local path" in local_result.stderr
 
 
+def test_pidocker_tools_add_list_and_remove_use_host_config(tmp_path):
+    config_dir = tmp_path / "config"
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+
+    add_result = subprocess.run(
+        [str(PIDOCKER), "tools", "add", "apt:binutils"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert add_result.returncode == 0
+    tools_file = config_dir / "tools.json"
+    assert json.loads(tools_file.read_text()) == {"tools": ["apt:binutils"]}
+    assert "pidocker:local-tools" in add_result.stdout
+
+    list_result = subprocess.run(
+        [str(PIDOCKER), "tools", "list"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert list_result.returncode == 0
+    assert list_result.stdout.strip() == "apt:binutils"
+
+    remove_result = subprocess.run(
+        [str(PIDOCKER), "tools", "remove", "apt:binutils"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert remove_result.returncode == 0
+    assert json.loads(tools_file.read_text()) == {"tools": []}
+
+
+def test_pidocker_tools_add_rejects_non_apt_or_invalid_tools(tmp_path):
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+
+    non_apt_result = subprocess.run(
+        [str(PIDOCKER), "tools", "add", "npm:readelf"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    invalid_result = subprocess.run(
+        [str(PIDOCKER), "tools", "add", "apt:../binutils"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert non_apt_result.returncode == 2
+    assert "tool must start with apt:" in non_apt_result.stderr
+    assert invalid_result.returncode == 2
+    assert "apt tools must look like apt:binutils" in invalid_result.stderr
+
+
+def test_pidocker_tools_build_generates_derived_image_dockerfile(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    docker_stdin = tmp_path / "Dockerfile.generated"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [ \"${1:-}\" = image ] && [ \"${2:-}\" = inspect ]; then\n"
+        "  if [ \"${3:-}\" = pidocker:local ]; then exit 0; fi\n"
+        "  exit 1\n"
+        "fi\n"
+        "if [ \"${1:-}\" = build ]; then cat > \"$PIDOCKER_DOCKER_STDIN\"; fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    config_dir = tmp_path / "config"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_DOCKER_STDIN"] = str(docker_stdin)
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+
+    add_result = subprocess.run(
+        [str(PIDOCKER), "tools", "add", "apt:binutils"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    build_result = subprocess.run(
+        [str(PIDOCKER), "tools", "build"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert add_result.returncode == 0
+    assert build_result.returncode == 0
+    docker_calls = docker_log.read_text().splitlines()
+    assert "build -t pidocker:local-tools -" in docker_calls
+    generated = docker_stdin.read_text()
+    assert "FROM pidocker:local" in generated
+    assert "LABEL org.pidocker.tools.sha=" in generated
+    assert "apt-get install -y --no-install-recommends" in generated
+    assert "binutils" in generated
+    assert "USER pi" in generated
+    assert str(config_dir) not in " ".join(docker_calls)
+
+
+def test_pidocker_runs_tools_image_when_tools_are_configured(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [ \"${1:-}\" = image ] && [ \"${2:-}\" = inspect ]; then\n"
+        "  if [ \"${3:-}\" = pidocker:local ]; then exit 0; fi\n"
+        "  exit 1\n"
+        "fi\n"
+        "if [ \"${1:-}\" = build ]; then cat >/dev/null; fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "tools.json").write_text(
+        '{\n'
+        '  "tools": [\n'
+        '    "apt:binutils"\n'
+        '  ]\n'
+        '}\n'
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+
+    result = subprocess.run(
+        [str(PIDOCKER)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    docker_calls = docker_log.read_text().splitlines()
+    docker_run_calls = [call.split() for call in docker_calls if call.startswith("run ")]
+
+    assert docker_run_calls, docker_calls
+    docker_run_call = docker_run_calls[-1]
+    assert "pidocker:local-tools" in docker_run_call
+    assert str(config_dir) not in " ".join(docker_run_call)
+
+
 def test_pidocker_agents_sync_streams_host_agents_without_mounting_host_dir(tmp_path):
     docker_log = tmp_path / "docker.log"
     docker_stdin = tmp_path / "docker-stdin.tar"
