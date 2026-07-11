@@ -1,6 +1,6 @@
 # pidocker
 
-`pidocker` runs Pi inside an isolated Docker container. The image includes Python 3.13, Pi 0.80.2, pi-web-access 0.10.7, and @tifan/pi-fixed-editor 0.2.3. The container uses only the named volumes `pidocker-home` and `pidocker-workspace`; it does not mount private host directories or the Docker socket.
+`pidocker` runs Pi inside an isolated Docker container. The image includes Python 3.13, Pi 0.80.6, pi-web-access 0.13.0, and @tifan/pi-fixed-editor 0.2.3. The container uses only the named volumes `pidocker-home` and `pidocker-workspace`; it does not mount private host directories or the Docker socket.
 
 ## Requirements
 
