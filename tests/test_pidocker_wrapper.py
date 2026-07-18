@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIDOCKER = REPO_ROOT / "bin" / "pidocker"
+PIDOCKERTEST = REPO_ROOT / "bin" / "pidockertest"
 FORBIDDEN_HOST_PATHS = [
     "/Users/example-user",
     "/Users/example-user/projects",
@@ -41,6 +42,25 @@ def test_pidocker_help_is_available_from_repo_script():
     assert result.returncode == 0
     assert "pidocker - run Pi inside a Docker container" in result.stdout
     assert "Usage:" in result.stdout
+
+
+def test_pidockertest_symlink_runs_repository_pidocker(tmp_path):
+    launcher = tmp_path / "pidockertest"
+    launcher.symlink_to(PIDOCKERTEST)
+    env = os.environ.copy()
+    env["PIDOCKER_TEST_CONFIG_DIR"] = str(tmp_path / "config")
+
+    result = subprocess.run(
+        [str(launcher), "repos", "list"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "No repository aliases configured."
 
 
 def test_pidocker_adds_app_label_to_docker_run(tmp_path):
