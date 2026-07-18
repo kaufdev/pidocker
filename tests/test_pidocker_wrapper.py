@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -237,6 +238,88 @@ def test_pidocker_can_print_shell_completion():
     assert result.returncode == 0
     assert "complete -F _pidocker_complete pidocker" in result.stdout
     assert "/workspace/repos" in result.stdout
+
+
+def test_pidocker_repos_add_list_remove_use_host_config(tmp_path):
+    config_dir = tmp_path / "config"
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+
+    add = subprocess.run(
+        [str(PIDOCKER), "repos", "add", "monorepo", "git@github.com:company/monorepo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert add.returncode == 0
+    assert (config_dir / "repos" / "monorepo").read_text() == "git@github.com:company/monorepo.git\n"
+    assert (config_dir / "repos" / "monorepo").stat().st_mode & 0o077 == 0
+
+    listed = subprocess.run(
+        [str(PIDOCKER), "repos", "list"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert listed.returncode == 0
+    assert listed.stdout.strip() == "monorepo"
+
+    removed = subprocess.run(
+        [str(PIDOCKER), "repos", "remove", "monorepo"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert removed.returncode == 0
+    assert not (config_dir / "repos" / "monorepo").exists()
+
+
+def test_pidocker_repos_reject_reserved_alias_and_invalid_url(tmp_path):
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+
+    reserved = subprocess.run(
+        [str(PIDOCKER), "repos", "add", "tools", "https://example.com/repo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    invalid_url = subprocess.run(
+        [str(PIDOCKER), "repos", "add", "repo", "https://example.com/repo.git\nssh://other/repo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert reserved.returncode == 2
+    assert "reserved" in reserved.stderr
+    assert invalid_url.returncode == 2
+    assert "without whitespace" in invalid_url.stderr
+
+
+def test_pidocker_alias_uses_isolated_instance_resources(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+    subprocess.run(
+        [str(PIDOCKER), "repos", "add", "monorepo", "git@github.com:company/monorepo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=True,
+    )
+
+    first = subprocess.run([str(PIDOCKER), "monorepo"], cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False)
+    second = subprocess.run([str(PIDOCKER), "monorepo"], cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False)
+    assert first.returncode == second.returncode == 0
+    calls = [line for line in docker_log.read_text().splitlines() if line.startswith("run ")]
+    assert len(calls) == 2
+    for call in calls:
+        assert "PIDOCKER_REPO_ARG=git@github.com:company/monorepo.git" in call
+        assert "type=volume,source=pidocker-home,target=/home/pi" in call
+    instances = [re.search(r"PIDOCKER_INSTANCE_ID=(monorepo-[0-9a-f]{12})", call).group(1) for call in calls]
+    assert instances[0] != instances[1]
+    assert f"source=pidocker-{instances[0]}-workspace,target=/workspace" in calls[0]
+    assert f"source=pidocker-{instances[1]}-workspace,target=/workspace" in calls[1]
+    assert f"PI_CODING_AGENT_SESSION_DIR=/home/pi/.pi/agent/instance-sessions/{instances[0]}" in calls[0]
 
 
 def test_pidocker_packages_add_list_and_remove_use_host_config(tmp_path):

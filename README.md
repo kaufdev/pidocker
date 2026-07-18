@@ -80,6 +80,34 @@ pidocker git@github.com:ORG/REPO.git
 
 If the repository directory already exists, `pidocker` reuses it instead of cloning again.
 
+### Parallel repository instances
+
+Configure a repository alias once:
+
+```bash
+pidocker repos add monorepo git@github.com:company/monorepo.git
+```
+
+Each invocation starts a fresh, independent checkout:
+
+```bash
+pidocker monorepo
+pidocker monorepo
+```
+
+Every instance gets its own workspace volume and Pi session directory, so the
+checkouts can run in parallel. Authentication, SSH keys, secrets, settings,
+and packages remain in the shared `pidocker-home` volume. Workspace volumes are
+kept after the container exits so uncommitted changes are not deleted; remove
+unused volumes with Docker when you no longer need them.
+
+Manage aliases with:
+
+```bash
+pidocker repos list
+pidocker repos remove monorepo
+```
+
 Inside Pi, log in with:
 
 ```text
