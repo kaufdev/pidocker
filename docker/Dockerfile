@@ -5,6 +5,7 @@ ARG PI_WEB_ACCESS_VERSION=0.13.0
 ARG PI_FIXED_EDITOR_VERSION=0.2.3
 
 COPY pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
+COPY pidocker-resume-repo.ts /usr/local/share/pidocker/pidocker-resume-repo.ts
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client \

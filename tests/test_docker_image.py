@@ -167,6 +167,15 @@ def test_dockerfile_installs_pinned_pi_packages():
     assert "@tifan/pi-fixed-editor@${PI_FIXED_EDITOR_VERSION}" in dockerfile
 
 
+def test_dockerfile_installs_repository_resume_extension():
+    dockerfile = DOCKERFILE.read_text()
+    extension = DOCKER_CONTEXT / "pidocker-resume-repo.ts"
+
+    assert extension.exists()
+    assert "COPY pidocker-resume-repo.ts /usr/local/share/pidocker/pidocker-resume-repo.ts" in dockerfile
+    assert 'pi.registerCommand("resume-repo"' in extension.read_text()
+
+
 def test_docker_image_contains_azure_cli_command():
     subprocess.run(
         ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],

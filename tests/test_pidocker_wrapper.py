@@ -1,12 +1,15 @@
 import base64
+import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIDOCKER = REPO_ROOT / "bin" / "pidocker"
+PIDOCKERTEST = REPO_ROOT / "bin" / "pidockertest"
 FORBIDDEN_HOST_PATHS = [
     "/Users/example-user",
     "/Users/example-user/projects",
@@ -40,6 +43,25 @@ def test_pidocker_help_is_available_from_repo_script():
     assert result.returncode == 0
     assert "pidocker - run Pi inside a Docker container" in result.stdout
     assert "Usage:" in result.stdout
+
+
+def test_pidockertest_symlink_runs_repository_pidocker(tmp_path):
+    launcher = tmp_path / "pidockertest"
+    launcher.symlink_to(PIDOCKERTEST)
+    env = os.environ.copy()
+    env["PIDOCKER_TEST_CONFIG_DIR"] = str(tmp_path / "config")
+
+    result = subprocess.run(
+        [str(launcher), "repos", "list"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "No repository aliases configured."
 
 
 def test_pidocker_adds_app_label_to_docker_run(tmp_path):
@@ -239,6 +261,184 @@ def test_pidocker_can_print_shell_completion():
     assert "/workspace/repos" in result.stdout
 
 
+def test_pidocker_repos_add_list_remove_use_host_config(tmp_path):
+    config_dir = tmp_path / "config"
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+
+    add = subprocess.run(
+        [str(PIDOCKER), "repos", "add", "monorepo", "git@github.com:company/monorepo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert add.returncode == 0
+    assert (config_dir / "repos" / "monorepo").read_text() == "git@github.com:company/monorepo.git\n"
+    assert (config_dir / "repos" / "monorepo").stat().st_mode & 0o077 == 0
+
+    listed = subprocess.run(
+        [str(PIDOCKER), "repos", "list"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert listed.returncode == 0
+    assert listed.stdout.strip() == "monorepo"
+
+    removed = subprocess.run(
+        [str(PIDOCKER), "repos", "remove", "monorepo"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert removed.returncode == 0
+    assert not (config_dir / "repos" / "monorepo").exists()
+
+
+def test_pidocker_repos_reject_reserved_alias_and_invalid_url(tmp_path):
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+
+    reserved = subprocess.run(
+        [str(PIDOCKER), "repos", "add", "tools", "https://example.com/repo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    invalid_url = subprocess.run(
+        [str(PIDOCKER), "repos", "add", "repo", "https://example.com/repo.git\nssh://other/repo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert reserved.returncode == 2
+    assert "reserved" in reserved.stderr
+    assert invalid_url.returncode == 2
+    assert "without whitespace" in invalid_url.stderr
+
+
+def test_pidocker_alias_uses_isolated_instance_resources(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+    subprocess.run(
+        [str(PIDOCKER), "repos", "add", "monorepo", "git@github.com:company/monorepo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=True,
+    )
+
+    first = subprocess.run([str(PIDOCKER), "monorepo"], cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False)
+    second = subprocess.run([str(PIDOCKER), "monorepo"], cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False)
+    assert first.returncode == second.returncode == 0
+    calls = [line for line in docker_log.read_text().splitlines() if line.startswith("run ")]
+    interactive_calls = [call for call in calls if " -it " in f" {call} "]
+    assert len(interactive_calls) == 2
+    for call in interactive_calls:
+        assert "PIDOCKER_REPO_ARG=git@github.com:company/monorepo.git" in call
+        assert "PIDOCKER_REPO_ALIAS=monorepo" in call
+        assert "PIDOCKER_RESUME_REQUEST_DIR=/home/pi/.pidocker/resume-requests" in call
+        assert re.search(r"PIDOCKER_RESUME_LAUNCH_ID=[0-9a-f]{32}", call)
+        assert "type=volume,source=pidocker-home,target=/home/pi" in call
+    instances = [
+        re.search(r"PIDOCKER_INSTANCE_ID=(monorepo-[0-9a-f]{12})", call).group(1)
+        for call in interactive_calls
+    ]
+    assert instances[0] != instances[1]
+    assert f"--name pidocker-{instances[0]}" in interactive_calls[0]
+    assert f"--name pidocker-{instances[1]}" in interactive_calls[1]
+    assert f"source=pidocker-{instances[0]}-workspace,target=/workspace" in interactive_calls[0]
+    assert f"source=pidocker-{instances[1]}-workspace,target=/workspace" in interactive_calls[1]
+    assert f"PI_CODING_AGENT_SESSION_DIR=/home/pi/.pi/agent/instance-sessions/{instances[0]}" in interactive_calls[0]
+
+
+def test_pidocker_resume_request_relaunches_selected_workspace_and_session(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    helper_count = tmp_path / "helper-count"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [[ \" $* \" == *\" PIDOCKER_RESUME_LAUNCH_ID=\"* && \" $* \" != *\" -it \"* ]]; then\n"
+        "  count=0\n"
+        "  if [ -f \"$PIDOCKER_HELPER_COUNT\" ]; then count=$(cat \"$PIDOCKER_HELPER_COUNT\"); fi\n"
+        "  count=$((count + 1))\n"
+        "  printf '%s\\n' \"$count\" > \"$PIDOCKER_HELPER_COUNT\"\n"
+        "  if [ \"$count\" -eq 1 ]; then\n"
+        "    printf '%s\\n' 'monorepo-aaaaaaaaaaaa' '2026-07-18T12-00-00-000Z_session.jsonl'\n"
+        "  fi\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_HELPER_COUNT"] = str(helper_count)
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+    subprocess.run(
+        [str(PIDOCKER), "repos", "add", "monorepo", "git@github.com:company/monorepo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=True,
+    )
+
+    result = subprocess.run(
+        [str(PIDOCKER), "monorepo"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+
+    assert result.returncode == 0
+    calls = [line for line in docker_log.read_text().splitlines() if line.startswith("run ")]
+    interactive_calls = [call for call in calls if " -it " in f" {call} "]
+    assert len(interactive_calls) == 2
+    resumed = interactive_calls[1]
+    target = "monorepo-aaaaaaaaaaaa"
+    session = "2026-07-18T12-00-00-000Z_session.jsonl"
+    assert f"--name pidocker-{target}" in resumed
+    assert f"source=pidocker-{target}-workspace,target=/workspace" in resumed
+    assert f"PI_CODING_AGENT_SESSION_DIR=/home/pi/.pi/agent/instance-sessions/{target}" in resumed
+    assert f"PIDOCKER_SESSION_PATH=/home/pi/.pi/agent/instance-sessions/{target}/{session}" in resumed
+    assert helper_count.read_text().strip() == "2"
+
+
+def test_pidocker_resume_request_rejects_another_repository_alias(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [[ \" $* \" == *\" PIDOCKER_RESUME_LAUNCH_ID=\"* && \" $* \" != *\" -it \"* ]]; then\n"
+        "  printf '%s\\n' 'other-aaaaaaaaaaaa' 'session.jsonl'\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+    subprocess.run(
+        [str(PIDOCKER), "repos", "add", "monorepo", "git@github.com:company/monorepo.git"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=True,
+    )
+
+    result = subprocess.run(
+        [str(PIDOCKER), "monorepo"],
+        cwd=REPO_ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+
+    assert result.returncode == 2
+    assert "malformed repository resume request" in result.stderr
+    calls = [line for line in docker_log.read_text().splitlines() if line.startswith("run ")]
+    interactive_calls = [call for call in calls if " -it " in f" {call} "]
+    assert len(interactive_calls) == 1
+
+
 def test_pidocker_packages_add_list_and_remove_use_host_config(tmp_path):
     config_dir = tmp_path / "config"
     env = os.environ.copy()
@@ -392,7 +592,10 @@ def test_pidocker_tools_build_generates_derived_image_dockerfile(tmp_path):
         "#!/usr/bin/env bash\n"
         "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
         "if [ \"${1:-}\" = image ] && [ \"${2:-}\" = inspect ]; then\n"
-        "  if [ \"${3:-}\" = pidocker:local ]; then exit 0; fi\n"
+        "  if [ \"${3:-}\" = pidocker:local ]; then\n"
+        "    if [ \"${4:-}\" = --format ]; then printf '%s\\n' 'sha256:base-image'; fi\n"
+        "    exit 0\n"
+        "  fi\n"
         "  exit 1\n"
         "fi\n"
         "if [ \"${1:-}\" = build ]; then cat > \"$PIDOCKER_DOCKER_STDIN\"; fi\n"
@@ -430,7 +633,8 @@ def test_pidocker_tools_build_generates_derived_image_dockerfile(tmp_path):
     assert "build -t pidocker:local-tools -" in docker_calls
     generated = docker_stdin.read_text()
     assert "FROM pidocker:local" in generated
-    assert "LABEL org.pidocker.tools.sha=" in generated
+    expected_hash = hashlib.sha256(b"sha256:base-image\napt:binutils\n").hexdigest()
+    assert f'LABEL org.pidocker.tools.sha="{expected_hash}"' in generated
     assert "apt-get install -y --no-install-recommends" in generated
     assert "binutils" in generated
     assert "USER pi" in generated

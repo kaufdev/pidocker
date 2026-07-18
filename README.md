@@ -53,6 +53,24 @@ git pull
 docker build -t pidocker:local docker
 ```
 
+For safe manual testing without changing an existing pidocker setup, use the
+separate test launcher. It uses the `pidocker:test` image, `pidocker-test-*`
+Docker volumes, and `~/.config/pidocker-test`:
+
+```bash
+docker build -t pidocker:test docker
+./bin/pidockertest repos add monorepo git@github.com:company/monorepo.git
+./bin/pidockertest monorepo
+```
+
+You can run two `./bin/pidockertest monorepo` commands in parallel. To install
+only this test launcher on `PATH`:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/bin/pidockertest" ~/.local/bin/pidockertest
+```
+
 ## Run Pi
 
 Start an interactive Pi session:
@@ -79,6 +97,42 @@ pidocker git@github.com:ORG/REPO.git
 ```
 
 If the repository directory already exists, `pidocker` reuses it instead of cloning again.
+
+### Parallel repository instances
+
+Configure a repository alias once:
+
+```bash
+pidocker repos add monorepo git@github.com:company/monorepo.git
+```
+
+Each invocation starts a fresh, independent checkout:
+
+```bash
+pidocker monorepo
+pidocker monorepo
+```
+
+Every instance gets its own workspace volume and Pi session directory, so the
+checkouts can run in parallel. Authentication, SSH keys, secrets, settings,
+and packages remain in the shared `pidocker-home` volume. Workspace volumes are
+kept after the container exits so uncommitted changes are not deleted; remove
+unused volumes with Docker when you no longer need them.
+
+Inside an alias-based instance, use `/resume-repo` to select one of the 30 most
+recent sessions for that repository alias. Pidocker closes the current
+container and starts a new one with the selected session's original workspace
+volume. The conversation, checked-out branch, committed changes, uncommitted
+changes, and untracked files therefore return together. The selected workspace
+cannot be open in another pidocker container at the same time. Pi's built-in
+`/resume` remains limited to the current instance.
+
+Manage aliases with:
+
+```bash
+pidocker repos list
+pidocker repos remove monorepo
+```
 
 Inside Pi, log in with:
 

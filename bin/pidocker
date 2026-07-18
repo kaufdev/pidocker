@@ -9,6 +9,7 @@ PIDOCKER_VOLUME_PREFIX="${PIDOCKER_VOLUME_PREFIX:-pidocker}"
 PIDOCKER_HOME_VOLUME="${PIDOCKER_VOLUME_PREFIX}-home"
 PIDOCKER_WORKSPACE_VOLUME="${PIDOCKER_VOLUME_PREFIX}-workspace"
 PIDOCKER_CONFIG_DIR="${PIDOCKER_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/pidocker}"
+PIDOCKER_REPOS_DIR="${PIDOCKER_REPOS_DIR:-${PIDOCKER_CONFIG_DIR}/repos}"
 PIDOCKER_PACKAGES_FILE="${PIDOCKER_PACKAGES_FILE:-${PIDOCKER_CONFIG_DIR}/packages.json}"
 PIDOCKER_TOOLS_FILE="${PIDOCKER_TOOLS_FILE:-${PIDOCKER_CONFIG_DIR}/tools.json}"
 PIDOCKER_TOOLS_IMAGE="${PIDOCKER_TOOLS_IMAGE:-${PIDOCKER_IMAGE}-tools}"
@@ -37,6 +38,9 @@ Usage:
   pidocker skills sync [--delete]
   pidocker skills list
   pidocker completion bash|zsh
+  pidocker repos add ALIAS GIT_URL
+  pidocker repos list
+  pidocker repos remove ALIAS
 
 Commands:
   setupssh                 Create/show the dedicated pidocker SSH public key
@@ -53,6 +57,9 @@ Commands:
   skills sync [--delete]   Sync host Pi skills into pidocker-home
   skills list              List host and pidocker global skills
   completion bash|zsh      Print shell completion for repository names
+  repos add ALIAS GIT_URL  Configure a repository alias
+  repos list               List repository aliases
+  repos remove ALIAS       Remove a repository alias
 
 Arguments:
   REPO      Start Pi in /workspace/repos/REPO
@@ -76,6 +83,92 @@ ensure_image_exists() {
   fi
 
   docker build -t "${PIDOCKER_IMAGE}" "${PIDOCKER_DOCKER_CONTEXT}"
+}
+
+validate_repo_alias() {
+  local alias="${1:-}"
+  if [[ ! "${alias}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$ ]]; then
+    echo "pidocker: alias must match [A-Za-z0-9][A-Za-z0-9_-]{0,39}" >&2
+    return 2
+  fi
+  case "${alias}" in
+    setupssh|secrets|packages|tools|agents|skills|completion|repos)
+      echo "pidocker: alias is reserved: ${alias}" >&2
+      return 2
+      ;;
+  esac
+}
+
+validate_git_url() {
+  local url="${1:-}"
+  if [[ -z "${url}" || "${url}" == *[[:space:]]* ]]; then
+    echo "pidocker: Git URL must be one non-empty line without whitespace" >&2
+    return 2
+  fi
+  case "${url}" in
+    https://*|http://*|ssh://*|git://*|git@*:*) ;;
+    *)
+      echo "pidocker: unsupported Git URL" >&2
+      return 2
+      ;;
+  esac
+}
+
+repo_alias_path() {
+  printf '%s/%s\n' "${PIDOCKER_REPOS_DIR}" "${1}"
+}
+
+repos_add() {
+  local alias="${1:-}" url="${2:-}" tmp_file
+  if [[ $# -ne 2 ]]; then
+    echo "Usage: pidocker repos add ALIAS GIT_URL" >&2
+    exit 2
+  fi
+  validate_repo_alias "${alias}"
+  validate_git_url "${url}"
+  mkdir -p "${PIDOCKER_REPOS_DIR}"
+  umask 077
+  tmp_file="$(mktemp "${PIDOCKER_REPOS_DIR}/.alias.XXXXXX")"
+  printf '%s\n' "${url}" > "${tmp_file}"
+  mv -f "${tmp_file}" "$(repo_alias_path "${alias}")"
+  echo "Configured repository alias ${alias}."
+}
+
+repos_list() {
+  local file found=0
+  if [[ -d "${PIDOCKER_REPOS_DIR}" ]]; then
+    while IFS= read -r -d '' file; do
+      printf '%s\n' "$(basename "${file}")"
+      found=1
+    done < <(find "${PIDOCKER_REPOS_DIR}" -mindepth 1 -maxdepth 1 -type f ! -name '.alias.*' -print0 | sort -z)
+  fi
+  if [[ "${found}" -eq 0 ]]; then
+    echo "No repository aliases configured."
+  fi
+}
+
+repos_remove() {
+  local alias="${1:-}" path
+  if [[ $# -ne 1 ]]; then
+    echo "Usage: pidocker repos remove ALIAS" >&2
+    exit 2
+  fi
+  validate_repo_alias "${alias}"
+  path="$(repo_alias_path "${alias}")"
+  if [[ -f "${path}" ]]; then
+    rm -f "${path}"
+    echo "Removed repository alias ${alias}."
+  else
+    echo "Repository alias ${alias} was not configured."
+  fi
+}
+
+repo_alias_url() {
+  local alias="${1}" path="$(repo_alias_path "${1}")" url
+  [[ -f "${path}" ]] || return 1
+  IFS= read -r url < "${path}" || true
+  validate_git_url "${url}" >/dev/null 2>&1 || return 2
+  printf '%s\n' "${url}"
 }
 
 validate_package_spec() {
@@ -505,11 +598,11 @@ host_tools_configured() {
 }
 
 tools_hash_from_file() {
-  local source_file="${1}"
+  local source_file="${1}" base_image_id="${2}"
   if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "${source_file}" | awk '{print $1}'
+    { printf '%s\n' "${base_image_id}"; cat "${source_file}"; } | shasum -a 256 | awk '{print $1}'
   else
-    sha256sum "${source_file}" | awk '{print $1}'
+    { printf '%s\n' "${base_image_id}"; cat "${source_file}"; } | sha256sum | awk '{print $1}'
   fi
 }
 
@@ -535,7 +628,7 @@ write_tools_dockerfile() {
 }
 
 ensure_user_tools_image() {
-  local tools_file tools_hash current_hash inspect_format
+  local tools_file tools_hash current_hash inspect_format base_image_id
   tools_file="$(mktemp)"
   if ! read_validated_host_tools > "${tools_file}"; then
     rm -f "${tools_file}"
@@ -548,7 +641,8 @@ ensure_user_tools_image() {
   fi
 
   ensure_image_exists
-  tools_hash="$(tools_hash_from_file "${tools_file}")"
+  base_image_id="$(docker image inspect "${PIDOCKER_IMAGE}" --format '{{.Id}}')"
+  tools_hash="$(tools_hash_from_file "${tools_file}" "${base_image_id}")"
   inspect_format="{{ index .Config.Labels \"${PIDOCKER_TOOLS_LABEL}\" }}"
   current_hash="$(docker image inspect "${PIDOCKER_TOOLS_IMAGE}" --format "${inspect_format}" 2>/dev/null || true)"
   if [[ "${current_hash}" = "${tools_hash}" ]]; then
@@ -725,7 +819,12 @@ skills_sync() {
 }
 
 run_container() {
-  local repo_arg="${1:-}"
+  local repo_arg="${1:-}" instance_id="${2:-}" repo_alias="${3:-}" workspace_volume="${PIDOCKER_WORKSPACE_VOLUME}"
+  if [[ -n "${instance_id}" ]]; then
+    workspace_volume="${PIDOCKER_VOLUME_PREFIX}-${instance_id}-workspace"
+    echo "pidocker: instance ${instance_id}"
+    echo "pidocker: workspace volume ${workspace_volume}"
+  fi
 
   ensure_docker_available
 
@@ -743,16 +842,14 @@ run_container() {
     ensure_image_exists
   fi
 
-  exec docker run \
-    --rm \
-    -it \
-    --label app=pidocker \
-    --env "PIDOCKER_REPO_ARG=${repo_arg}" \
-    --env "PIDOCKER_PACKAGE_SPECS_B64=${package_specs_b64}" \
-    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
-    --mount "type=volume,source=${PIDOCKER_WORKSPACE_VOLUME},target=/workspace" \
-    "${container_image}" \
-    bash -lc '
+  local -a docker_args=(
+    --rm -it
+    --label app=pidocker
+    --env "PIDOCKER_REPO_ARG=${repo_arg}"
+    --env "PIDOCKER_PACKAGE_SPECS_B64=${package_specs_b64}"
+    --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi"
+  )
+  local -a container_command=(bash -lc '
       set -euo pipefail
       settings_file=/home/pi/.pi/agent/settings.json
       keybindings_file=/home/pi/.pi/agent/keybindings.json
@@ -772,7 +869,11 @@ function readJson(file) {
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  const content = `${JSON.stringify(value, null, 2)}\n`;
+  try {
+    if (fs.readFileSync(file, "utf8") === content) return;
+  } catch (_) {}
+  fs.writeFileSync(file, content);
 }
 
 const settingsFile = process.env.PI_SETTINGS_FILE;
@@ -849,8 +950,111 @@ NODE
         esac
       fi
       cd "${workdir}"
-      exec pi
-    '
+      pi_args=()
+      if [ -n "${PIDOCKER_REPO_ALIAS:-}" ]; then
+        pi_args+=( -e /usr/local/share/pidocker/pidocker-resume-repo.ts )
+      fi
+      if [ -n "${PIDOCKER_SESSION_PATH:-}" ]; then
+        pi_args+=( --session "${PIDOCKER_SESSION_PATH}" )
+      fi
+      exec pi "${pi_args[@]}"
+    ')
+
+  if [[ -z "${repo_alias}" ]]; then
+    docker_args+=(--mount "type=volume,source=${workspace_volume},target=/workspace")
+    if [[ -n "${instance_id}" ]]; then
+      docker_args+=(
+        --env "PIDOCKER_INSTANCE_ID=${instance_id}"
+        --env "PI_CODING_AGENT_SESSION_DIR=/home/pi/.pi/agent/instance-sessions/${instance_id}"
+      )
+    fi
+    exec docker run "${docker_args[@]}" "${container_image}" "${container_command[@]}"
+  fi
+
+  local current_instance="${instance_id}" session_path=""
+  local launch_id container_status request_status request_file
+  local target_instance session_basename request_line line_count
+  local -a launch_args
+  while true; do
+    workspace_volume="${PIDOCKER_VOLUME_PREFIX}-${current_instance}-workspace"
+    launch_id="$(new_resume_launch_id)"
+    launch_args=(
+      "${docker_args[@]}"
+      --name "${PIDOCKER_VOLUME_PREFIX}-${current_instance}"
+      --env "PIDOCKER_INSTANCE_ID=${current_instance}"
+      --env "PI_CODING_AGENT_SESSION_DIR=/home/pi/.pi/agent/instance-sessions/${current_instance}"
+      --env "PIDOCKER_REPO_ALIAS=${repo_alias}"
+      --env "PIDOCKER_RESUME_LAUNCH_ID=${launch_id}"
+      --env "PIDOCKER_RESUME_REQUEST_DIR=/home/pi/.pidocker/resume-requests"
+      --mount "type=volume,source=${workspace_volume},target=/workspace"
+    )
+    if [[ -n "${session_path}" ]]; then
+      launch_args+=(--env "PIDOCKER_SESSION_PATH=${session_path}")
+    fi
+
+    if docker run "${launch_args[@]}" "${container_image}" "${container_command[@]}"; then
+      container_status=0
+    else
+      container_status=$?
+    fi
+
+    request_file="$(mktemp)"
+    if docker run \
+      --rm \
+      --env "PIDOCKER_RESUME_LAUNCH_ID=${launch_id}" \
+      --mount "type=volume,source=${PIDOCKER_HOME_VOLUME},target=/home/pi" \
+      "${container_image}" \
+      bash -lc '
+        request_file="/home/pi/.pidocker/resume-requests/${PIDOCKER_RESUME_LAUNCH_ID}.request"
+        if [ -f "${request_file}" ]; then
+          cat -- "${request_file}"
+          rm -f -- "${request_file}"
+        fi
+      ' > "${request_file}"; then
+      request_status=0
+    else
+      request_status=$?
+    fi
+
+    if [[ "${request_status}" -ne 0 ]]; then
+      rm -f "${request_file}"
+      echo "pidocker: could not inspect repository resume request" >&2
+      return "${request_status}"
+    fi
+    if [[ ! -s "${request_file}" ]]; then
+      rm -f "${request_file}"
+      return "${container_status}"
+    fi
+
+    target_instance=""
+    session_basename=""
+    line_count=0
+    request_line=""
+    while IFS= read -r request_line || [[ -n "${request_line}" ]]; do
+      line_count=$((line_count + 1))
+      case "${line_count}" in
+        1) target_instance="${request_line}" ;;
+        2) session_basename="${request_line}" ;;
+      esac
+    done < "${request_file}"
+    rm -f "${request_file}"
+
+    if [[ "${line_count}" -ne 2 || ! "${target_instance}" =~ ^${repo_alias}-[0-9a-f]{12}$ || ! "${session_basename}" =~ ^[A-Za-z0-9._-]+\.jsonl$ ]]; then
+      echo "pidocker: malformed repository resume request" >&2
+      return 2
+    fi
+
+    workspace_volume="${PIDOCKER_VOLUME_PREFIX}-${target_instance}-workspace"
+    if ! docker volume inspect "${workspace_volume}" >/dev/null 2>&1; then
+      echo "pidocker: workspace volume not found: ${workspace_volume}" >&2
+      return 1
+    fi
+
+    current_instance="${target_instance}"
+    session_path="/home/pi/.pi/agent/instance-sessions/${current_instance}/${session_basename}"
+    echo "pidocker: instance ${current_instance}"
+    echo "pidocker: workspace volume ${PIDOCKER_VOLUME_PREFIX}-${current_instance}-workspace"
+  done
 }
 
 setup_ssh() {
@@ -866,6 +1070,15 @@ setup_ssh() {
     pidocker-ssh-setup
 }
 
+new_instance_id() {
+  printf '%s-%s\n' "${1}" "$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+}
+
+new_resume_launch_id() {
+  od -An -N16 -tx1 /dev/urandom | tr -d ' \n'
+  printf '\n'
+}
+
 show_completion() {
   local shell="${1:-}"
   case "${shell}" in
@@ -874,10 +1087,11 @@ show_completion() {
 _pidocker_complete() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    local commands="setupssh secrets packages tools agents skills completion --help -h"
-    local repos
+    local commands="setupssh secrets packages tools agents skills completion repos --help -h"
+    local repos aliases
     repos=$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null || true)
-    COMPREPLY=( $(compgen -W "${commands} ${repos}" -- "${cur}") )
+    aliases=$(find "${PIDOCKER_REPOS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/pidocker}/repos" -mindepth 1 -maxdepth 1 -type f -printf "%f\n" 2>/dev/null || true)
+    COMPREPLY=( $(compgen -W "${commands} ${repos} ${aliases}" -- "${cur}") )
   fi
 }
 complete -F _pidocker_complete pidocker
@@ -887,10 +1101,11 @@ BASH
       cat <<'ZSH'
 #compdef pidocker
 _pidocker() {
-  local -a repos commands
-  commands=(setupssh secrets packages tools agents skills completion --help -h)
+  local -a repos aliases commands
+  commands=(setupssh secrets packages tools agents skills completion repos --help -h)
   repos=(${(f)"$(docker run --rm --mount "type=volume,source=${PIDOCKER_VOLUME_PREFIX:-pidocker}-workspace,target=/workspace" "${PIDOCKER_IMAGE:-pidocker:local}" bash -lc 'find /workspace/repos -mindepth 1 -maxdepth 1 -type d -printf "%f\n" 2>/dev/null' 2>/dev/null)"})
-  _describe 'pidocker arguments' commands repos
+  aliases=(${(f)"$(find "${PIDOCKER_REPOS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/pidocker}/repos" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' 2>/dev/null)"})
+  _describe 'pidocker arguments' commands repos aliases
 }
 _pidocker "$@"
 ZSH
@@ -1101,6 +1316,26 @@ case "${1:-}" in
     fi
     show_completion "${2}"
     ;;
+  repos)
+    case "${2:-}" in
+      add)
+        [[ -n "${3:-}" && -n "${4:-}" && -z "${5:-}" ]] || { echo "Usage: pidocker repos add ALIAS GIT_URL" >&2; exit 2; }
+        repos_add "${3}" "${4}"
+        ;;
+      list)
+        [[ -z "${3:-}" && -z "${4:-}" ]] || { echo "Usage: pidocker repos list" >&2; exit 2; }
+        repos_list
+        ;;
+      remove)
+        [[ -n "${3:-}" && -z "${4:-}" ]] || { echo "Usage: pidocker repos remove ALIAS" >&2; exit 2; }
+        repos_remove "${3}"
+        ;;
+      *)
+        echo "Usage: pidocker repos add ALIAS GIT_URL | repos list | repos remove ALIAS" >&2
+        exit 2
+        ;;
+    esac
+    ;;
   -* )
     echo "Unknown option: $1" >&2
     show_help >&2
@@ -1110,6 +1345,12 @@ case "${1:-}" in
     if [[ -n "${2:-}" ]]; then
       echo "Usage: pidocker [REPO|GIT_URL]" >&2
       exit 2
+    fi
+    if validate_repo_alias "${1}" >/dev/null 2>&1; then
+      if alias_url="$(repo_alias_url "${1}")"; then
+        run_container "${alias_url}" "$(new_instance_id "${1}")" "${1}"
+        exit 0
+      fi
     fi
     run_container "${1}"
     ;;
