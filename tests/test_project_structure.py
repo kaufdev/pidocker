@@ -4,6 +4,7 @@ from pathlib import Path
 REQUIRED_PATHS = [
     "bin/pidocker",
     "docker/Dockerfile",
+    "docker/pidocker-resume-repo.ts",
     "tests",
     "README.md",
 ]

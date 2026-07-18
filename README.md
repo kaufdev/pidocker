@@ -119,6 +119,14 @@ and packages remain in the shared `pidocker-home` volume. Workspace volumes are
 kept after the container exits so uncommitted changes are not deleted; remove
 unused volumes with Docker when you no longer need them.
 
+Inside an alias-based instance, use `/resume-repo` to select one of the 30 most
+recent sessions for that repository alias. Pidocker closes the current
+container and starts a new one with the selected session's original workspace
+volume. The conversation, checked-out branch, committed changes, uncommitted
+changes, and untracked files therefore return together. The selected workspace
+cannot be open in another pidocker container at the same time. Pi's built-in
+`/resume` remains limited to the current instance.
+
 Manage aliases with:
 
 ```bash
