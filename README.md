@@ -53,6 +53,24 @@ git pull
 docker build -t pidocker:local docker
 ```
 
+For safe manual testing without changing an existing pidocker setup, use the
+separate test launcher. It uses the `pidocker:test` image, `pidocker-test-*`
+Docker volumes, and `~/.config/pidocker-test`:
+
+```bash
+docker build -t pidocker:test docker
+./bin/pidockertest repos add monorepo git@github.com:company/monorepo.git
+./bin/pidockertest monorepo
+```
+
+You can run two `./bin/pidockertest monorepo` commands in parallel. To install
+only this test launcher on `PATH`:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/bin/pidockertest" ~/.local/bin/pidockertest
+```
+
 ## Run Pi
 
 Start an interactive Pi session:
