@@ -8,9 +8,19 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DOCKER_CONTEXT = REPO_ROOT / "docker"
-DOCKERFILE = DOCKER_CONTEXT / "Dockerfile"
+DOCKER_DIR = REPO_ROOT / "docker"
+DOCKER_CONTEXT = REPO_ROOT
+DOCKERFILE = DOCKER_DIR / "Dockerfile"
 TEST_IMAGE = "pidocker:test-non-root-user"
+DOCKER_BUILD_COMMAND = [
+    "docker",
+    "build",
+    "--file",
+    str(DOCKERFILE),
+    "-t",
+    TEST_IMAGE,
+    str(DOCKER_CONTEXT),
+]
 FORBIDDEN_HOST_PATHS = [
     "/Users/example-user",
     "/Users/example-user/projects",
@@ -36,7 +46,7 @@ def remove_docker_volumes(*volume_names):
 
 def test_docker_image_runs_as_pi_non_root_with_workspace_dirs():
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -67,7 +77,7 @@ def test_docker_image_uses_writable_home_npm_global_prefix_with_home_volume():
     home_volume = f"{volume_prefix}-home"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -101,7 +111,7 @@ def test_docker_image_uses_writable_home_npm_global_prefix_with_home_volume():
 
 def test_docker_image_uses_pi_as_default_command():
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -126,7 +136,7 @@ def test_docker_image_uses_pi_as_default_command():
 
 def test_docker_image_contains_pi_command():
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -169,16 +179,65 @@ def test_dockerfile_installs_pinned_pi_packages():
 
 def test_dockerfile_installs_repository_resume_extension():
     dockerfile = DOCKERFILE.read_text()
-    extension = DOCKER_CONTEXT / "pidocker-resume-repo.ts"
+    extension = DOCKER_DIR / "pidocker-resume-repo.ts"
 
     assert extension.exists()
-    assert "COPY pidocker-resume-repo.ts /usr/local/share/pidocker/pidocker-resume-repo.ts" in dockerfile
+    assert "COPY docker/pidocker-resume-repo.ts /usr/local/share/pidocker/pidocker-resume-repo.ts" in dockerfile
     assert 'pi.registerCommand("resume-repo"' in extension.read_text()
+
+
+def test_docker_image_exposes_pidocker_documentation_to_pi():
+    subprocess.run(
+        DOCKER_BUILD_COMMAND,
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+    documentation = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            TEST_IMAGE,
+            "cat",
+            "/usr/local/share/pidocker/README.md",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert documentation.stdout == (REPO_ROOT / "README.md").read_text()
+
+    context_files = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            TEST_IMAGE,
+            "node",
+            "--input-type=module",
+            "--eval",
+            "import { loadProjectContextFiles } from "
+            "'/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js'; "
+            "console.log(JSON.stringify(loadProjectContextFiles({ "
+            "cwd: '/workspace/repos/example', agentDir: '/home/pi/.pi/agent' "
+            "})));",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    contexts = json.loads(context_files.stdout)
+    root_context = next(context for context in contexts if context["path"] == "/AGENTS.md")
+    assert root_context["content"] == (DOCKER_DIR / "pidocker-AGENTS.md").read_text()
+    assert "/usr/local/share/pidocker/README.md" in root_context["content"]
 
 
 def test_docker_image_contains_azure_cli_command():
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -206,7 +265,7 @@ def test_docker_image_contains_azure_cli_command():
 
 def test_docker_image_contains_python_and_pytest():
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -240,7 +299,7 @@ def test_docker_image_contains_python_and_pytest():
 
 def test_docker_image_contains_builtin_pi_packages():
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -285,7 +344,7 @@ def test_builtin_package_settings_persist_in_home_volume():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -357,7 +416,7 @@ def test_home_volume_persists_between_container_runs():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -412,7 +471,7 @@ def test_workspace_volume_persists_repos_between_container_runs():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -467,7 +526,7 @@ def test_docker_image_starts_in_workspace_repos():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -502,7 +561,7 @@ def test_git_can_clone_repo_into_workspace_repos_and_persist_it():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -560,7 +619,7 @@ def test_pi_auth_file_persists_in_home_volume_between_container_runs():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -616,7 +675,7 @@ def test_notion_secret_path_is_sandboxed_and_persists_in_home_volume_between_con
     notion_secret_file = "/home/pi/.pidocker/secrets/notion.env"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -675,7 +734,7 @@ def test_pidocker_secrets_set_stores_notion_secret_in_home_volume():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -743,7 +802,7 @@ def test_pi_resume_sessions_persist_in_home_volume_between_container_runs():
     session_file = "/home/pi/.pi/agent/sessions/session-persistence-test.jsonl"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -798,7 +857,7 @@ def test_pidocker_ssh_setup_command_creates_dedicated_key_config_and_is_idempote
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -874,7 +933,7 @@ def test_pidocker_ssh_setup_updates_legacy_managed_config_without_removing_custo
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -931,7 +990,7 @@ def test_dedicated_pidocker_ssh_key_can_be_generated_and_persists_in_home_volume
     key_path = "/home/pi/.ssh/id_ed25519_pidocker"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -993,7 +1052,7 @@ def test_azure_devops_clone_uses_dedicated_pidocker_ssh_key_and_workspace_repo_p
     clone_path = f"/workspace/repos/{repo_name}"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -1070,7 +1129,7 @@ def test_git_allows_force_pushes_and_normal_pushes():
     workspace_volume = f"{volume_prefix}-workspace"
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )
@@ -1160,7 +1219,7 @@ def test_container_mounts_only_pidocker_volumes_and_cannot_see_private_host_path
     container_id = None
 
     subprocess.run(
-        ["docker", "build", "-t", TEST_IMAGE, str(DOCKER_CONTEXT)],
+        DOCKER_BUILD_COMMAND,
         cwd=REPO_ROOT,
         check=True,
     )

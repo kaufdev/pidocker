@@ -23,7 +23,7 @@ description: Pidocker development, test handoff, and Homebrew release workflow. 
 6. Prepare local manual test command:
 
 ```bash
-docker build -t pidocker:local docker
+docker build --file docker/Dockerfile -t pidocker:local .
 mkdir -p ~/.local/bin
 ln -sf "$PWD/bin/pidocker" ~/.local/bin/pidocker-dev
 ~/.local/bin/pidocker-dev --help

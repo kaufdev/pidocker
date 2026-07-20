@@ -32,10 +32,18 @@ The first `pidocker` run builds the Docker image automatically if `pidocker:loca
 To build manually from the repository root:
 
 ```bash
-docker build -t pidocker:local docker
+docker build --file docker/Dockerfile -t pidocker:local .
 ```
 
+The repository root is the build context so the canonical Pidocker documentation can be bundled in the image. The allowlist in `.dockerignore` limits that context to `README.md` and `docker/`.
+
 Override the image name with `PIDOCKER_IMAGE` if needed.
+
+## Pidocker documentation inside Pi
+
+Every image includes this README at `/usr/local/share/pidocker/README.md`. An image-owned `/AGENTS.md` tells Pi to read it for questions about Pidocker commands, configuration, volumes, security, and troubleshooting, so the current documentation is available from every repository instance without a host mount.
+
+Pi's own upstream documentation remains available separately through Pi's built-in documentation paths.
 
 ## Local development install
 
@@ -50,7 +58,7 @@ To update a local development install, pull the latest repository changes and re
 
 ```bash
 git pull
-docker build -t pidocker:local docker
+docker build --file docker/Dockerfile -t pidocker:local .
 ```
 
 For safe manual testing without changing an existing pidocker setup, use the
@@ -58,7 +66,7 @@ separate test launcher. It uses the `pidocker:test` image, `pidocker-test-*`
 Docker volumes, and `~/.config/pidocker-test`:
 
 ```bash
-docker build -t pidocker:test docker
+docker build --file docker/Dockerfile -t pidocker:test .
 ./bin/pidockertest repos add monorepo git@github.com:company/monorepo.git
 ./bin/pidockertest monorepo
 ```

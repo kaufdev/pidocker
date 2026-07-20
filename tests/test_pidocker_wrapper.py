@@ -45,6 +45,46 @@ def test_pidocker_help_is_available_from_repo_script():
     assert "Usage:" in result.stdout
 
 
+def test_pidocker_builds_missing_image_from_root_context(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [[ \"${1:-}\" == image && \"${2:-}\" == inspect ]]; then exit 1; fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+
+    result = subprocess.run(
+        [str(PIDOCKER)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    docker_calls = [call.split() for call in docker_log.read_text().splitlines()]
+    build_call = next(call for call in docker_calls if call[0] == "build")
+    assert build_call == [
+        "build",
+        "--file",
+        str(REPO_ROOT / "docker" / "Dockerfile"),
+        "-t",
+        "pidocker:local",
+        str(REPO_ROOT),
+    ]
+
+
 def test_pidockertest_symlink_runs_repository_pidocker(tmp_path):
     launcher = tmp_path / "pidockertest"
     launcher.symlink_to(PIDOCKERTEST)
@@ -226,6 +266,7 @@ def test_pidocker_accepts_repository_name_as_start_directory(tmp_path):
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
     env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
 
     result = subprocess.run(

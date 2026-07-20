@@ -16,6 +16,8 @@ REQUIRED_README_PHRASES = [
     "docker exec",
     "app=pidocker",
     "@tifan/pi-fixed-editor",
+    "/usr/local/share/pidocker/README.md",
+    "/AGENTS.md",
 ]
 
 

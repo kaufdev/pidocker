@@ -4,8 +4,8 @@ ARG PI_CODING_AGENT_VERSION=0.80.6
 ARG PI_WEB_ACCESS_VERSION=0.13.0
 ARG PI_FIXED_EDITOR_VERSION=0.2.3
 
-COPY pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
-COPY pidocker-resume-repo.ts /usr/local/share/pidocker/pidocker-resume-repo.ts
+COPY docker/pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
+COPY docker/pidocker-resume-repo.ts /usr/local/share/pidocker/pidocker-resume-repo.ts
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client \
@@ -51,6 +51,9 @@ RUN apt-get update \
     && chmod 644 /etc/profile.d/pidocker-npm-global.sh \
     && chmod 700 /home/pi/.pidocker /home/pi/.pidocker/secrets \
     && chown -R pi:pi /home/pi /workspace
+
+COPY README.md /usr/local/share/pidocker/README.md
+COPY docker/pidocker-AGENTS.md /AGENTS.md
 
 ENV NPM_CONFIG_PREFIX=/home/pi/.npm-global
 ENV PATH=/home/pi/.npm-global/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
