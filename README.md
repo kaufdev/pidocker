@@ -241,7 +241,9 @@ Install the subagents extension package:
 pidocker packages add git:github.com/kaufdev/pi-subagents@v0.1.2
 ```
 
-The host package list is stored at `~/.config/pidocker/packages.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_PACKAGES_FILE` is set. On startup, `pidocker` validates this file, passes only the package specs into the container, and merges them into `/home/pi/.pi/agent/settings.json` together with the built-in `npm:pi-web-access` and `npm:@tifan/pi-fixed-editor` packages.
+The host package list is stored at `~/.config/pidocker/packages.json` unless `XDG_CONFIG_HOME`, `PIDOCKER_CONFIG_DIR`, or `PIDOCKER_PACKAGES_FILE` is set. On startup, `pidocker` validates this file, passes only the package specs into the container, and merges them into `/home/pi/.pi/agent/settings.json` together with the built-in `npm:pi-web-access` and `npm:@tifan/pi-fixed-editor` packages. Packages are matched by npm package name or normalized Git repository identity, so changing a version or Git ref replaces and deduplicates the previous entry instead of leaving the stale ref first.
+
+When a host-managed Git source is added or changed, pidocker reconciles its persisted checkout with `pi install --no-approve` before extensions load. Removing a previously managed host package removes its Pi setting and installation during the same bootstrap. Pending installs and removals are stored in `/home/pi/.pidocker/package-reconcile.json` before settings are changed, so an interrupted or failed operation is retried on the next start. Parallel instances serialize this bootstrap step through a lock in the shared `pidocker-home` volume, and settings updates also honor Pi's own settings lock.
 
 Package specs must be pinned npm packages such as `npm:@client/pi-tools@1.2.3` or pinned remote git packages such as `git:github.com/client/pi-tools@v1.2.3`. Local paths are rejected so pidocker does not need host mounts. Pi packages can execute code inside the container, so install only packages you trust.
 

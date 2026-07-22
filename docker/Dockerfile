@@ -4,11 +4,14 @@ ARG PI_CODING_AGENT_VERSION=0.80.6
 ARG PI_WEB_ACCESS_VERSION=0.13.0
 ARG PI_FIXED_EDITOR_VERSION=0.2.3
 
+LABEL org.pidocker.runtime.version="1"
+
 COPY docker/pidocker-ssh-setup /usr/local/bin/pidocker-ssh-setup
 COPY docker/pidocker-resume-repo.ts /usr/local/share/pidocker/pidocker-resume-repo.ts
+COPY docker/pidocker-bootstrap.cjs /usr/local/share/pidocker/pidocker-bootstrap.cjs
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client \
+    && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm openssh-client util-linux \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL -o /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc \
     && gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg /tmp/microsoft.asc \

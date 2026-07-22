@@ -10,6 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIDOCKER = REPO_ROOT / "bin" / "pidocker"
 PIDOCKERTEST = REPO_ROOT / "bin" / "pidockertest"
+PIDOCKER_BOOTSTRAP = REPO_ROOT / "docker" / "pidocker-bootstrap.cjs"
 FORBIDDEN_HOST_PATHS = [
     "/Users/example-user",
     "/Users/example-user/projects",
@@ -26,6 +27,65 @@ FORBIDDEN_DOCKER_FLAGS = [
     "--pid=host",
     "--network=host",
 ]
+
+
+def run_package_bootstrap(tmp_path, host_packages, *, pi_exit=0, npm_exit=0):
+    fake_bin = tmp_path / "bootstrap-bin"
+    fake_bin.mkdir(exist_ok=True)
+    fake_pi = fake_bin / "pi"
+    fake_pi.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "with open(os.environ['PIDOCKER_FAKE_PI_LOG'], 'a', encoding='utf8') as stream:\n"
+        "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "raise SystemExit(int(os.environ.get('PIDOCKER_FAKE_PI_EXIT', '0')))\n"
+    )
+    fake_pi.chmod(0o755)
+    fake_npm = fake_bin / "npm"
+    fake_npm.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "with open(os.environ['PIDOCKER_FAKE_NPM_LOG'], 'a', encoding='utf8') as stream:\n"
+        "    stream.write(json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd()}) + '\\n')\n"
+        "raise SystemExit(int(os.environ.get('PIDOCKER_FAKE_NPM_EXIT', '0')))\n"
+    )
+    fake_npm.chmod(0o755)
+
+    paths = {
+        "settings": tmp_path / "settings.json",
+        "keybindings": tmp_path / "keybindings.json",
+        "reconcile": tmp_path / "package-reconcile.json",
+        "pi_log": tmp_path / "pi.log",
+        "npm_log": tmp_path / "npm.log",
+    }
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PI_SETTINGS_FILE"] = str(paths["settings"])
+    env["PI_KEYBINDINGS_FILE"] = str(paths["keybindings"])
+    env["PIDOCKER_PACKAGE_RECONCILE_FILE"] = str(paths["reconcile"])
+    env["PIDOCKER_PACKAGE_SPECS_B64"] = base64.b64encode(
+        "\n".join(host_packages).encode()
+    ).decode()
+    env["PIDOCKER_FAKE_PI_LOG"] = str(paths["pi_log"])
+    env["PIDOCKER_FAKE_PI_EXIT"] = str(pi_exit)
+    env["PIDOCKER_FAKE_NPM_LOG"] = str(paths["npm_log"])
+    env["PIDOCKER_FAKE_NPM_EXIT"] = str(npm_exit)
+
+    result = subprocess.run(
+        ["node", str(PIDOCKER_BOOTSTRAP)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result, paths
+
+
+def read_fake_pi_calls(path):
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
 
 
 def test_pidocker_help_is_available_from_repo_script():
@@ -83,6 +143,41 @@ def test_pidocker_builds_missing_image_from_root_context(tmp_path):
         "pidocker:local",
         str(REPO_ROOT),
     ]
+
+
+def test_pidocker_rebuilds_image_with_incompatible_runtime_label(tmp_path):
+    docker_log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$PIDOCKER_DOCKER_LOG\"\n"
+        "if [[ \"${1:-}\" == image && \"${2:-}\" == inspect && \" $* \" == *\" --format \"* ]]; then\n"
+        "  printf '%s\\n' '0'\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
+    env["PIDOCKER_DOCKER_LOG"] = str(docker_log)
+
+    result = subprocess.run(
+        [str(PIDOCKER)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "rebuilding incompatible image" in result.stderr
+    docker_calls = [call.split() for call in docker_log.read_text().splitlines()]
+    assert any(call[0] == "build" for call in docker_calls)
 
 
 def test_pidockertest_symlink_runs_repository_pidocker(tmp_path):
@@ -525,6 +620,44 @@ def test_pidocker_packages_add_list_and_remove_use_host_config(tmp_path):
     assert json.loads(packages_file.read_text()) == {"packages": []}
 
 
+def test_pidocker_packages_add_replaces_same_git_repo_across_url_forms(tmp_path):
+    config_dir = tmp_path / "config"
+    env = os.environ.copy()
+    env["PIDOCKER_CONFIG_DIR"] = str(config_dir)
+    old_source = "git:git@github.com:client/pi-tools.git@v1.0.0"
+    new_source = "git:https://github.com/client/pi-tools@v2.0.0"
+
+    subprocess.run(
+        [str(PIDOCKER), "packages", "add", old_source],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        [str(PIDOCKER), "packages", "add", new_source],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    packages_file = config_dir / "packages.json"
+    assert json.loads(packages_file.read_text()) == {"packages": [new_source]}
+
+    subprocess.run(
+        [str(PIDOCKER), "packages", "remove", "git:github.com/client/pi-tools"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert json.loads(packages_file.read_text()) == {"packages": []}
+
+
 def test_pidocker_packages_add_rejects_unpinned_or_local_packages(tmp_path):
     env = os.environ.copy()
     env["PIDOCKER_CONFIG_DIR"] = str(tmp_path / "config")
@@ -545,11 +678,241 @@ def test_pidocker_packages_add_rejects_unpinned_or_local_packages(tmp_path):
         capture_output=True,
         check=False,
     )
+    unpinned_ssh_result = subprocess.run(
+        [
+            str(PIDOCKER),
+            "packages",
+            "add",
+            "git:ssh://git@github.com/client/pi-tools",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
     assert unpinned_result.returncode == 2
     assert "npm packages must be pinned" in unpinned_result.stderr
     assert local_result.returncode == 2
     assert "not a local path" in local_result.stderr
+    assert unpinned_ssh_result.returncode == 2
+    assert "must include a pinned ref" in unpinned_ssh_result.stderr
+
+
+def test_package_bootstrap_replaces_refs_deduplicates_and_preserves_filters(tmp_path):
+    desired_git = "git:github.com/kaufdev/notion-agent-manager@v0.1.4"
+    desired_npm = "npm:@client/pi-tools@2.0.0"
+    settings = {
+        "theme": "dark",
+        "packages": [
+            "../../../../workspace/repos/notion-agent-manager",
+            "npm:unrelated@9.9.9",
+            {
+                "source": "git:git@github.com:kaufdev/notion-agent-manager.git@v0.1.3",
+                "autoload": False,
+                "extensions": ["extensions/*.ts"],
+            },
+            "git:https://github.com/kaufdev/notion-agent-manager.git@v0.1.2",
+            {
+                "source": "npm:@client/pi-tools@1.0.0",
+                "skills": [],
+            },
+            "npm:@client/pi-tools@0.9.0",
+            {"source": "../../local-extension", "extensions": []},
+        ],
+    }
+    (tmp_path / "settings.json").write_text(json.dumps(settings))
+
+    result, paths = run_package_bootstrap(
+        tmp_path, [desired_git, desired_npm]
+    )
+
+    assert result.returncode == 0, result.stderr
+    updated = json.loads(paths["settings"].read_text())
+    assert updated["theme"] == "dark"
+    assert updated["packages"] == [
+        "../../../../workspace/repos/notion-agent-manager",
+        "npm:unrelated@9.9.9",
+        {
+            "source": desired_git,
+            "autoload": False,
+            "extensions": ["extensions/*.ts"],
+        },
+        {"source": desired_npm, "skills": []},
+        {"source": "../../local-extension", "extensions": []},
+        "npm:pi-web-access",
+        "npm:@tifan/pi-fixed-editor",
+    ]
+    assert read_fake_pi_calls(paths["pi_log"]) == [
+        ["install", desired_git, "--no-approve"]
+    ]
+    assert json.loads(paths["reconcile"].read_text()) == {
+        "version": 1,
+        "managed": {
+            "git:github.com/kaufdev/notion-agent-manager": desired_git,
+            "npm:@client/pi-tools": desired_npm,
+        },
+        "pendingGit": {},
+        "pendingRemove": {},
+    }
+
+    second_result, _ = run_package_bootstrap(
+        tmp_path, [desired_git, desired_npm]
+    )
+
+    assert second_result.returncode == 0, second_result.stderr
+    assert read_fake_pi_calls(paths["pi_log"]) == [
+        ["install", desired_git, "--no-approve"]
+    ]
+
+
+def test_package_bootstrap_retries_git_reconcile_after_failure(tmp_path):
+    old_git = "git:github.com/kaufdev/notion-agent-manager@v0.1.3"
+    desired_git = "git:github.com/kaufdev/notion-agent-manager@v0.1.4"
+    identity = "git:github.com/kaufdev/notion-agent-manager"
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"packages": [old_git]})
+    )
+    (tmp_path / "package-reconcile.json").write_text(
+        json.dumps({"version": 1, "pendingGit": {identity: old_git}})
+    )
+
+    failed, paths = run_package_bootstrap(
+        tmp_path, [desired_git], pi_exit=17
+    )
+
+    assert failed.returncode == 1
+    assert "pi install failed" in failed.stderr
+    assert json.loads(paths["settings"].read_text())["packages"][0] == desired_git
+    assert json.loads(paths["reconcile"].read_text()) == {
+        "version": 1,
+        "managed": {identity: desired_git},
+        "pendingGit": {identity: desired_git},
+        "pendingRemove": {},
+    }
+    assert read_fake_pi_calls(paths["pi_log"]) == [
+        ["install", desired_git, "--no-approve"]
+    ]
+
+    succeeded, _ = run_package_bootstrap(tmp_path, [desired_git])
+    final, _ = run_package_bootstrap(tmp_path, [desired_git])
+
+    assert succeeded.returncode == 0, succeeded.stderr
+    assert final.returncode == 0, final.stderr
+    assert read_fake_pi_calls(paths["pi_log"]) == [
+        ["install", desired_git, "--no-approve"],
+        ["install", desired_git, "--no-approve"],
+    ]
+    assert json.loads(paths["reconcile"].read_text()) == {
+        "version": 1,
+        "managed": {identity: desired_git},
+        "pendingGit": {},
+        "pendingRemove": {},
+    }
+
+
+def test_package_bootstrap_removes_packages_deleted_from_host_config(tmp_path):
+    managed_git = "git:github.com/client/git-tools@v1.0.0"
+    managed_npm = "npm:@client/pi-tools@1.0.0"
+    git_identity = "git:github.com/client/git-tools"
+    npm_identity = "npm:@client/pi-tools"
+    local_package = "../../../../workspace/repos/local-tools"
+    (tmp_path / "settings.json").write_text(
+        json.dumps(
+            {
+                "packages": [
+                    managed_git,
+                    managed_npm,
+                    "npm:unrelated@9.9.9",
+                    local_package,
+                ]
+            }
+        )
+    )
+    (tmp_path / "package-reconcile.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "managed": {
+                    git_identity: managed_git,
+                    npm_identity: managed_npm,
+                },
+                "pendingGit": {},
+                "pendingRemove": {},
+            }
+        )
+    )
+
+    result, paths = run_package_bootstrap(tmp_path, [])
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(paths["settings"].read_text())["packages"] == [
+        "npm:unrelated@9.9.9",
+        local_package,
+        "npm:pi-web-access",
+        "npm:@tifan/pi-fixed-editor",
+    ]
+    assert read_fake_pi_calls(paths["pi_log"]) == []
+    assert json.loads(paths["reconcile"].read_text()) == {
+        "version": 1,
+        "managed": {},
+        "pendingGit": {},
+        "pendingRemove": {},
+    }
+
+    second, _ = run_package_bootstrap(tmp_path, [])
+    assert second.returncode == 0, second.stderr
+    assert len(read_fake_pi_calls(paths["pi_log"])) == 0
+
+
+def test_package_bootstrap_retries_incomplete_git_dependencies(tmp_path):
+    old_git = "git:github.com/client/pi-tools@v1.0.0"
+    desired_git = "git:github.com/client/pi-tools@v2.0.0"
+    identity = "git:github.com/client/pi-tools"
+    install_dir = tmp_path / "git" / "github.com" / "client" / "pi-tools"
+    install_dir.mkdir(parents=True)
+    (install_dir / "package.json").write_text('{"name":"pi-tools"}\n')
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"packages": [old_git]})
+    )
+
+    failed, paths = run_package_bootstrap(
+        tmp_path, [desired_git], npm_exit=23
+    )
+
+    assert failed.returncode == 1
+    assert "dependency install failed" in failed.stderr
+    assert read_fake_pi_calls(paths["pi_log"]) == [
+        ["install", desired_git, "--no-approve"]
+    ]
+    assert read_fake_pi_calls(paths["npm_log"]) == [
+        {"argv": ["install", "--omit=dev"], "cwd": str(install_dir)}
+    ]
+    assert json.loads(paths["reconcile"].read_text())["pendingGit"] == {
+        identity: desired_git
+    }
+
+    succeeded, _ = run_package_bootstrap(tmp_path, [desired_git])
+
+    assert succeeded.returncode == 0, succeeded.stderr
+    assert read_fake_pi_calls(paths["pi_log"]) == [
+        ["install", desired_git, "--no-approve"],
+        ["install", desired_git, "--no-approve"],
+    ]
+    assert len(read_fake_pi_calls(paths["npm_log"])) == 2
+    assert json.loads(paths["reconcile"].read_text())["pendingGit"] == {}
+
+
+def test_package_bootstrap_passes_git_source_as_one_argv_value(tmp_path):
+    source = "git:github.com/client/pi-tools@v1;echo-owned"
+
+    result, paths = run_package_bootstrap(tmp_path, [source])
+
+    assert result.returncode == 0, result.stderr
+    assert read_fake_pi_calls(paths["pi_log"]) == [
+        ["install", source, "--no-approve"]
+    ]
 
 
 def test_pidocker_tools_add_list_and_remove_use_host_config(tmp_path):
@@ -1011,25 +1374,31 @@ def test_pidocker_loads_pidocker_secrets_before_running_pi():
     assert "exec pi" in script
 
 
-def test_pidocker_persists_builtin_packages_in_home_volume_before_running_pi():
+def test_pidocker_bootstraps_packages_in_home_volume_before_running_pi():
     script = PIDOCKER.read_text()
+    bootstrap = PIDOCKER_BOOTSTRAP.read_text()
 
     assert "/home/pi/.pi/agent/settings.json" in script
-    assert "npm:pi-web-access" in script
-    assert "npm:@tifan/pi-fixed-editor" in script
-    assert "settings.packages.push" in script
-    assert script.index("npm:pi-web-access") < script.index("exec pi")
-    assert script.index("npm:@tifan/pi-fixed-editor") < script.index("exec pi")
+    assert "/home/pi/.pidocker/package-reconcile.json" in script
+    assert "flock -x 9" in script
+    assert "node /usr/local/share/pidocker/pidocker-bootstrap.cjs" in script
+    assert "npm:pi-web-access" in bootstrap
+    assert "npm:@tifan/pi-fixed-editor" in bootstrap
+    assert 'runPiPackageCommand("install", source)' in bootstrap
+    assert '[action, source, "--no-approve"]' in bootstrap
+    assert script.index("secrets_file=") < script.index("pidocker-bootstrap.cjs")
+    assert script.index("pidocker-bootstrap.cjs") < script.index("exec pi")
 
 
 def test_pidocker_configures_multiline_keybinding_before_running_pi():
     script = PIDOCKER.read_text()
+    bootstrap = PIDOCKER_BOOTSTRAP.read_text()
     dockerfile = (REPO_ROOT / "docker" / "Dockerfile").read_text()
 
     assert "/home/pi/.pi/agent/keybindings.json" in script
-    assert "tui.input.newLine" in script
-    assert "ctrl+j" in script
-    assert script.index("tui.input.newLine") < script.index("exec pi")
+    assert "tui.input.newLine" in bootstrap
+    assert "ctrl+j" in bootstrap
+    assert script.index("pidocker-bootstrap.cjs") < script.index("exec pi")
     assert '"tui.input.newLine":["shift+enter","ctrl+j"]' in dockerfile
 
 

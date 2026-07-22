@@ -186,6 +186,16 @@ def test_dockerfile_installs_repository_resume_extension():
     assert 'pi.registerCommand("resume-repo"' in extension.read_text()
 
 
+def test_dockerfile_installs_package_bootstrap_and_lock_utility():
+    dockerfile = DOCKERFILE.read_text()
+    bootstrap = DOCKER_DIR / "pidocker-bootstrap.cjs"
+
+    assert bootstrap.exists()
+    assert "COPY docker/pidocker-bootstrap.cjs /usr/local/share/pidocker/pidocker-bootstrap.cjs" in dockerfile
+    assert 'LABEL org.pidocker.runtime.version="1"' in dockerfile
+    assert "util-linux" in dockerfile
+
+
 def test_docker_image_exposes_pidocker_documentation_to_pi():
     subprocess.run(
         DOCKER_BUILD_COMMAND,

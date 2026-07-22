@@ -6,6 +6,7 @@ REQUIRED_PATHS = [
     "bin/pidocker",
     "docker/Dockerfile",
     "docker/pidocker-AGENTS.md",
+    "docker/pidocker-bootstrap.cjs",
     "docker/pidocker-resume-repo.ts",
     "tests",
     "README.md",

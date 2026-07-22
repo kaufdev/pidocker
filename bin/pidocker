@@ -15,6 +15,8 @@ PIDOCKER_PACKAGES_FILE="${PIDOCKER_PACKAGES_FILE:-${PIDOCKER_CONFIG_DIR}/package
 PIDOCKER_TOOLS_FILE="${PIDOCKER_TOOLS_FILE:-${PIDOCKER_CONFIG_DIR}/tools.json}"
 PIDOCKER_TOOLS_IMAGE="${PIDOCKER_TOOLS_IMAGE:-${PIDOCKER_IMAGE}-tools}"
 PIDOCKER_TOOLS_LABEL="org.pidocker.tools.sha"
+PIDOCKER_RUNTIME_LABEL="org.pidocker.runtime.version"
+PIDOCKER_RUNTIME_VERSION="1"
 PIDOCKER_HOST_AGENTS_DIR="${PIDOCKER_HOST_AGENTS_DIR:-${HOME}/.pi/agent/agents}"
 PIDOCKER_HOST_SKILLS_DIR="${PIDOCKER_HOST_SKILLS_DIR:-${HOME}/.pi/agent/skills}"
 
@@ -79,10 +81,16 @@ ensure_docker_available() {
 }
 
 ensure_image_exists() {
-  if docker image inspect "${PIDOCKER_IMAGE}" >/dev/null 2>&1; then
+  local inspect_format current_version
+  inspect_format="{{ index .Config.Labels \"${PIDOCKER_RUNTIME_LABEL}\" }}"
+  current_version="$(docker image inspect "${PIDOCKER_IMAGE}" --format "${inspect_format}" 2>/dev/null || true)"
+  if [[ "${current_version}" = "${PIDOCKER_RUNTIME_VERSION}" ]]; then
     return 0
   fi
 
+  if docker image inspect "${PIDOCKER_IMAGE}" >/dev/null 2>&1; then
+    echo "pidocker: rebuilding incompatible image ${PIDOCKER_IMAGE}" >&2
+  fi
   docker build --file "${PIDOCKER_DOCKERFILE}" -t "${PIDOCKER_IMAGE}" "${PIDOCKER_DOCKER_CONTEXT}"
 }
 
@@ -172,9 +180,28 @@ repo_alias_url() {
   printf '%s\n' "${url}"
 }
 
+git_package_ref() {
+  local source="${1}" path_with_ref repository_path ref
+  case "${source}" in
+    git@*:*) path_with_ref="${source#*:}" ;;
+    *://*)
+      source="${source#*://}"
+      [[ "${source}" == */* ]] || return 1
+      path_with_ref="${source#*/}"
+      ;;
+    github.com/*) path_with_ref="${source#*/}" ;;
+    *) return 1 ;;
+  esac
+  [[ "${path_with_ref}" == *@* ]] || return 1
+  repository_path="${path_with_ref%%@*}"
+  ref="${path_with_ref#*@}"
+  [[ -n "${repository_path}" && -n "${ref}" ]] || return 1
+  printf '%s\n' "${ref}"
+}
+
 validate_package_spec() {
   local spec="${1:-}"
-  local source ref remote
+  local source ref
 
   if [[ -z "${spec}" || "${spec}" == *[[:space:]]* || "${spec}" == *\"* || "${spec}" == *\\* ]]; then
     echo "pidocker: package must be a single npm: or git: spec without spaces, quotes, or backslashes" >&2
@@ -190,23 +217,17 @@ validate_package_spec() {
       ;;
     git:*)
       source="${spec#git:}"
-      if [[ "${source}" != *@* ]]; then
-        echo "pidocker: git packages must include a pinned ref, e.g. git:github.com/org/repo@v1.2.3" >&2
-        return 2
-      fi
-      ref="${source##*@}"
-      remote="${source%@*}"
-      if [[ -z "${ref}" || -z "${remote}" ]]; then
-        echo "pidocker: git packages must include a remote and pinned ref" >&2
-        return 2
-      fi
-      case "${remote}" in
+      case "${source}" in
         https://*|http://*|ssh://*|git://*|github.com/*|git@*:*) ;;
         *)
           echo "pidocker: git packages must use a remote git URL, not a local path" >&2
           return 2
           ;;
       esac
+      if ! ref="$(git_package_ref "${source}")"; then
+        echo "pidocker: git packages must include a pinned ref, e.g. git:github.com/org/repo@v1.2.3" >&2
+        return 2
+      fi
       ;;
     *)
       echo "pidocker: package must start with npm: or git:" >&2
@@ -217,7 +238,7 @@ validate_package_spec() {
 
 validate_package_remove_arg() {
   local spec="${1:-}"
-  local source remote
+  local source
 
   if validate_package_spec "${spec}" >/dev/null 2>&1; then
     return 0
@@ -234,8 +255,7 @@ validate_package_remove_arg() {
       ;;
     git:*)
       source="${spec#git:}"
-      remote="${source%@*}"
-      case "${remote}" in
+      case "${source}" in
         https://*|http://*|ssh://*|git://*|github.com/*|git@*:*) return 0 ;;
       esac
       ;;
@@ -243,6 +263,34 @@ validate_package_remove_arg() {
 
   echo "pidocker: package to remove must be a valid npm: or git: package identity" >&2
   return 2
+}
+
+git_package_identity() {
+  local source="${1}" host path_with_ref repository_path authority
+  case "${source}" in
+    git@*:* )
+      host="${source%%:*}"
+      host="${host#git@}"
+      path_with_ref="${source#*:}"
+      ;;
+    *://* )
+      source="${source#*://}"
+      authority="${source%%/*}"
+      host="${authority##*@}"
+      host="${host%%:*}"
+      path_with_ref="${source#*/}"
+      ;;
+    * )
+      host="${source%%/*}"
+      path_with_ref="${source#*/}"
+      ;;
+  esac
+  repository_path="${path_with_ref%%@*}"
+  repository_path="${repository_path#/}"
+  repository_path="${repository_path%/}"
+  repository_path="${repository_path%.git}"
+  host="$(printf '%s' "${host}" | tr '[:upper:]' '[:lower:]')"
+  printf '%s\n' "git:${host}/${repository_path}"
 }
 
 package_identity() {
@@ -258,8 +306,7 @@ package_identity() {
       fi
       ;;
     git:*)
-      rest="${spec#git:}"
-      printf '%s\n' "git:${rest%@*}"
+      git_package_identity "${spec#git:}"
       ;;
     *)
       printf '%s\n' "${spec}"
@@ -854,61 +901,9 @@ run_container() {
       set -euo pipefail
       settings_file=/home/pi/.pi/agent/settings.json
       keybindings_file=/home/pi/.pi/agent/keybindings.json
-      mkdir -p /home/pi/.pi/agent
-      PI_SETTINGS_FILE="${settings_file}" PI_KEYBINDINGS_FILE="${keybindings_file}" node <<"NODE"
-const fs = require("fs");
-const path = require("path");
-
-function readJson(file) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch (_) {
-    return {};
-  }
-}
-
-function writeJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const content = `${JSON.stringify(value, null, 2)}\n`;
-  try {
-    if (fs.readFileSync(file, "utf8") === content) return;
-  } catch (_) {}
-  fs.writeFileSync(file, content);
-}
-
-const settingsFile = process.env.PI_SETTINGS_FILE;
-const settings = readJson(settingsFile);
-if (!Array.isArray(settings.packages)) settings.packages = [];
-const hostPackages = Buffer.from(process.env.PIDOCKER_PACKAGE_SPECS_B64 || "", "base64")
-  .toString("utf8")
-  .split(/\n/)
-  .filter(Boolean);
-for (const pkg of ["npm:pi-web-access", "npm:@tifan/pi-fixed-editor", ...hostPackages]) {
-  if (!settings.packages.includes(pkg)) {
-    settings.packages.push(pkg);
-  }
-}
-writeJson(settingsFile, settings);
-
-const keybindingsFile = process.env.PI_KEYBINDINGS_FILE;
-const keybindings = readJson(keybindingsFile);
-const newLineAction = "tui.input.newLine";
-const existingNewLine = keybindings[newLineAction] ?? keybindings.newLine;
-const newLineKeys = Array.isArray(existingNewLine)
-  ? existingNewLine.filter((key) => typeof key === "string")
-  : typeof existingNewLine === "string"
-    ? [existingNewLine]
-    : ["shift+enter"];
-for (const key of ["shift+enter", "ctrl+j"]) {
-  if (!newLineKeys.includes(key)) {
-    newLineKeys.push(key);
-  }
-}
-keybindings[newLineAction] = newLineKeys;
-delete keybindings.newLine;
-writeJson(keybindingsFile, keybindings);
-NODE
+      reconcile_file=/home/pi/.pidocker/package-reconcile.json
+      bootstrap_lock=/home/pi/.pidocker/package-bootstrap.lock
+      mkdir -p /home/pi/.pi/agent /home/pi/.pidocker
 
       secrets_file=/home/pi/.pidocker/secrets/env
       if [ -f "${secrets_file}" ]; then
@@ -918,6 +913,14 @@ NODE
           fi
         done < "${secrets_file}"
       fi
+
+      (
+        flock -x 9
+        PI_SETTINGS_FILE="${settings_file}" \
+          PI_KEYBINDINGS_FILE="${keybindings_file}" \
+          PIDOCKER_PACKAGE_RECONCILE_FILE="${reconcile_file}" \
+          node /usr/local/share/pidocker/pidocker-bootstrap.cjs
+      ) 9>"${bootstrap_lock}"
       repo_arg="${PIDOCKER_REPO_ARG:-}"
       workdir=/workspace/repos
       if [ -n "${repo_arg}" ]; then
